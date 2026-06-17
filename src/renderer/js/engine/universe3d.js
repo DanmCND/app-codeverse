@@ -21,7 +21,8 @@ class Universe3D {
       powerPreference: "high-performance"
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // Reduzido o pixel ratio máximo para 1.25 para ganhar muita performance com post-processing
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     this.container.appendChild(this.renderer.domElement);
 
     // Verificação de Aceleração de Hardware do WebGL
@@ -48,11 +49,12 @@ class Universe3D {
     // Post-Processing (Bloom / Glow Neon)
     // =========================================================
     const renderScene = new RenderPass(this.scene, this.camera);
+    // Resolução do bloom reduzida e parâmetros atenuados para performance
     const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
-      1.3, // intensity reduzida para não estourar a cena
-      0.45, // radius do glow
-      0.25  // threshold levemente maior para evitar glow exagerado
+      new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+      0.75, // intensity reduzida ainda mais para melhorar fluidez e evitar exageros
+      0.3,  // radius do glow menor
+      0.4   // threshold maior
     );
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(renderScene);
@@ -73,6 +75,7 @@ class Universe3D {
     this.interactLayer.style.height = '100%';
     this.interactLayer.style.zIndex = '5';
     this.interactLayer.style.cursor = 'grab';
+    this.interactLayer.style.touchAction = 'none'; // FIX MOBILE: Permite arrastar no touch sem mover a página
     
     // A CHAVE DO BUG DE ARRASTAR NO PLANETA: 
     // Impede que o Chromium tente fazer "Drag and Drop" de imagem/link quando o cursor vira "pointer"
@@ -111,17 +114,22 @@ class Universe3D {
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
     this.scene.add(ambientLight);
 
-    this.sunLight = new THREE.PointLight(0xffffff, 1.5, 1000); // Brilho do sol reduzido de 2 para 1.5
+    this.sunLight = new THREE.PointLight(0xffffff, 0.8, 1000); // Brilho do sol reduzido de 1.5 para 0.8
     this.scene.add(this.sunLight);
 
     // Grupos de órbita para inclinação 3D
     this.orbitGroups = [];
     this.planetMeshes = [];
-    this.starGroup = null;
-    this.nebulaGroup = null;
+    this.starSprite = null;
+    this.nebulaSprite = null;
     this.isPaused = false; 
     this.is2D = false; // Estado inicial da dimensão (3D)
-    this.useBloom = window.innerWidth > 768; // Desativado no mobile por padrão para performance
+    // Bloom sempre ativo — pipeline foi reescrito para ser leve o suficiente
+    this.useBloom = true;
+    // Contador de frame para throttle do raycaster
+    this._frameCount = 0;
+    // Flag de mousemove pendente para throttle
+    this._mouseDirty = false;
 
     // =========================================================
     // Gerenciamento de Texturas (Geradas Localmente para Performance e Offline-First)
@@ -129,7 +137,6 @@ class Universe3D {
     this.textures = {
       gas: this.generateGasTexture(),
       rock: this.generateRockTexture(),
-      cloud: this.generateCloudTexture(),
       star: this.generateStarTexture()
     };
     
@@ -137,8 +144,8 @@ class Universe3D {
     this.textures.gas.colorSpace = THREE.SRGBColorSpace;
     this.textures.rock.colorSpace = THREE.SRGBColorSpace;
 
-    // Shared unit sphere geometry for planets, atmospheres and the Sun
-    this.sharedSphereGeometry = new THREE.SphereGeometry(1, 24, 24);
+    // Shared unit sphere geometry for planets e Sol (segmentos reduzidos para performance)
+    this.sharedSphereGeometry = new THREE.SphereGeometry(1, 16, 16);
 
     this.createBackgroundStars(25000);
 
@@ -305,77 +312,59 @@ class Universe3D {
     return texture;
   }
 
+  // =========================================================
+  // NOVA TÉCNICA: Pré-renderizar estrelas e nebulosa em Canvas 2D
+  // Uma única textura = 1 draw call, zero overhead de partículas/blending
+  // =========================================================
   createBackgroundStars(systemRadius = 1200) {
-    // Remove o grupo de estrelas se ele já existir
-    if (this.starGroup) {
-      this.scene.remove(this.starGroup);
+    // Remove sprite anterior se existir
+    if (this.starSprite) {
+      this.scene.remove(this.starSprite);
+      if (this.starSprite.material.map) this.starSprite.material.map.dispose();
+      this.starSprite.material.dispose();
+      this.starSprite = null;
     }
-
-    this.starGroup = new THREE.Group();
-
-    // Define limites dinâmicos para a casca de estrelas (background) de modo que sempre fiquem no fundo
-    const minRadius = Math.max(systemRadius * 2.0, 10000);
-    const maxRadius = Math.max(systemRadius * 4.0, 25000);
 
     const isMobile = window.innerWidth <= 768;
-    const smallCount = isMobile ? 2000 : 6000;
-    const brightCount = isMobile ? 600 : 2000;
+    const size = isMobile ? 1024 : 2048;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
 
-    // 1. Estrelas pequenas de fundo (tênues e numerosas)
-    const smallGeo = new THREE.BufferGeometry();
-    const smallVertices = [];
-    for (let i = 0; i < smallCount; i++) {
-      const theta = Math.random() * 2 * Math.PI;
-      const phi = Math.acos(Math.random() * 2 - 1);
-      const r = Math.cbrt(Math.random() * (Math.pow(maxRadius, 3) - Math.pow(minRadius, 3)) + Math.pow(minRadius, 3));
-      smallVertices.push(
-        r * Math.sin(phi) * Math.cos(theta),
-        r * Math.sin(phi) * Math.sin(theta),
-        r * Math.cos(phi)
-      );
+    // Fundo totalmente transparente
+    ctx.clearRect(0, 0, size, size);
+
+    const starCount = isMobile ? 1200 : 3500;
+    for (let i = 0; i < starCount; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = Math.random() < 0.15 ? (Math.random() * 1.5 + 1) : (Math.random() * 0.8 + 0.3);
+      const alpha = Math.random() * 0.7 + 0.3;
+
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      // Estrelas mais brilhantes com um halo sutil
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 2.5);
+      grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.arc(x, y, r * 2.5, 0, Math.PI * 2);
+      ctx.fill();
     }
-    smallGeo.setAttribute('position', new THREE.Float32BufferAttribute(smallVertices, 3));
-    const smallMat = new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: isMobile ? 1.2 : 1.8, // Tamanho reduzido no mobile
-      sizeAttenuation: false,
-      map: this.textures.star,
-      transparent: true,
-      opacity: 0.5,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
-    const smallStars = new THREE.Points(smallGeo, smallMat);
-    this.starGroup.add(smallStars);
 
-    // 2. Estrelas médias/brilhantes (maiores e menos numerosas)
-    const brightGeo = new THREE.BufferGeometry();
-    const brightVertices = [];
-    for (let i = 0; i < brightCount; i++) {
-      const theta = Math.random() * 2 * Math.PI;
-      const phi = Math.acos(Math.random() * 2 - 1);
-      const r = Math.cbrt(Math.random() * (Math.pow(maxRadius, 3) - Math.pow(minRadius, 3)) + Math.pow(minRadius, 3));
-      brightVertices.push(
-        r * Math.sin(phi) * Math.cos(theta),
-        r * Math.sin(phi) * Math.sin(theta),
-        r * Math.cos(phi)
-      );
-    }
-    brightGeo.setAttribute('position', new THREE.Float32BufferAttribute(brightVertices, 3));
-    const brightMat = new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: isMobile ? 2.2 : 3.0, // Tamanho reduzido no mobile
-      sizeAttenuation: false,
-      map: this.textures.star,
+    const tex = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({
+      map: tex,
       transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      opacity: 0.9
     });
-    const brightStars = new THREE.Points(brightGeo, brightMat);
-    this.starGroup.add(brightStars);
-
-    this.scene.add(this.starGroup);
+    this.starSprite = new THREE.Sprite(spriteMat);
+    // Escalar o sprite para cobrir toda a "abóbada" atrás da cena
+    const skySize = Math.max(systemRadius * 5.0, 50000);
+    this.starSprite.scale.set(skySize, skySize, 1);
+    this.scene.add(this.starSprite);
   }
 
   getColorForLanguage(lang) {
@@ -461,169 +450,70 @@ class Universe3D {
     });
     const maxSystemRadius = Math.max(500, tempDistance);
 
-    if (this.nebulaGroup) {
-      this.nebulaGroup.traverse(child => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
-        }
-      });
-      this.scene.remove(this.nebulaGroup);
+    // =========================================================
+    // NOVA TÉCNICA: Nebulosa pré-renderizada como textura Canvas
+    // Substitui centenas de partículas por 1-2 sprites estáticos.
+    // =========================================================
+    if (this.nebulaSprite) {
+      this.scene.remove(this.nebulaSprite);
+      if (this.nebulaSprite.material.map) this.nebulaSprite.material.map.dispose();
+      this.nebulaSprite.material.dispose();
+      this.nebulaSprite = null;
     }
-    this.nebulaGroup = new THREE.Group();
-
-    const nebulaColor = this.getColorForLanguage(dominantLanguage);
-    const colorObj = new THREE.Color(nebulaColor);
-    
-    // Cores do tema espacial para misturar
-    const themeColors = [
-      new THREE.Color(0x4F46E5), // Indigo
-      new THREE.Color(0x7C3AED), // Roxo
-      new THREE.Color(0x00E5FF)  // Ciano
-    ];
-
-    // Calcula os limites dinâmicos para a nebulosa com base no raio máximo
-    const coreStart = Math.max(120, maxSystemRadius * 0.15);
-    const coreEnd = Math.max(350, maxSystemRadius * 0.45);
-    const outerStart = coreEnd;
-    const outerEnd = Math.max(1200, maxSystemRadius * 1.4);
 
     const isMobile = window.innerWidth <= 768;
-    const coreCount = isMobile ? 50 : 150;
-    const outerCount = isMobile ? 150 : 450;
-    const dustCount = isMobile ? 60 : 180;
+    const nebSize = isMobile ? 512 : 1024;
+    const nebCanvas = document.createElement('canvas');
+    nebCanvas.width = nebSize;
+    nebCanvas.height = nebSize;
+    const nebCtx = nebCanvas.getContext('2d');
+    nebCtx.clearRect(0, 0, nebSize, nebSize);
 
-    // 1. Núcleo Interno da Nebulosa (reduzido, afastado do centro e dinâmico)
-    const coreGeo = new THREE.BufferGeometry();
-    const coreVertices = [];
-    const coreColors = [];
-    
-    for (let i = 0; i < coreCount; i++) {
-      const r = coreStart + Math.random() * (coreEnd - coreStart);
-      const theta = Math.random() * 2 * Math.PI;
-      const phi = Math.acos(Math.random() * 2 - 1);
-      
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.sin(phi) * Math.sin(theta) * 0.25; // achatado no Y
-      const z = r * Math.cos(phi);
-      
-      coreVertices.push(x, y, z);
-      
-      const c = colorObj.clone();
-      c.offsetHSL((Math.random() - 0.5) * 0.05, 0, (Math.random() - 0.5) * 0.1);
-      coreColors.push(c.r, c.g, c.b);
+    // Cor da linguagem dominante
+    const langColorHex = this.getColorForLanguage(dominantLanguage);
+    const lc = new THREE.Color(langColorHex);
+    const langR = Math.round(lc.r * 255);
+    const langG = Math.round(lc.g * 255);
+    const langB = Math.round(lc.b * 255);
+
+    // Nuvens de nebulosa centrais (blob radial difuso)
+    const themeRGB = [
+      { r: 79,  g: 70,  b: 229 }, // Indigo
+      { r: 124, g: 58,  b: 237 }, // Roxo
+      { r: 0,   g: 229, b: 255 }, // Ciano
+      { r: langR, g: langG, b: langB } // Cor da linguagem dominante
+    ];
+
+    const blobCount = isMobile ? 12 : 28;
+    for (let i = 0; i < blobCount; i++) {
+      const cx = (0.2 + Math.random() * 0.6) * nebSize;
+      const cy = (0.2 + Math.random() * 0.6) * nebSize;
+      const radius = (0.08 + Math.random() * 0.22) * nebSize;
+      const col = themeRGB[Math.floor(Math.random() * themeRGB.length)];
+      const alpha = 0.04 + Math.random() * 0.07;
+
+      const grad = nebCtx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+      grad.addColorStop(0,   `rgba(${col.r},${col.g},${col.b},${alpha})`);
+      grad.addColorStop(0.5, `rgba(${col.r},${col.g},${col.b},${alpha * 0.4})`);
+      grad.addColorStop(1,   `rgba(${col.r},${col.g},${col.b},0)`);
+      nebCtx.fillStyle = grad;
+      nebCtx.beginPath();
+      nebCtx.ellipse(cx, cy, radius, radius * (0.5 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2);
+      nebCtx.fill();
     }
-    
-    coreGeo.setAttribute('position', new THREE.Float32BufferAttribute(coreVertices, 3));
-    coreGeo.setAttribute('color', new THREE.Float32BufferAttribute(coreColors, 3));
-    
-    const coreMat = new THREE.PointsMaterial({
-      size: Math.max(isMobile ? 80.0 : 150.0, maxSystemRadius * (isMobile ? 0.08 : 0.15)), // tamanho reduzido no mobile
-      map: this.textures.cloud,
+
+    const nebTex = new THREE.CanvasTexture(nebCanvas);
+    const nebMat = new THREE.SpriteMaterial({
+      map: nebTex,
       transparent: true,
-      opacity: 0.025,
-      blending: THREE.AdditiveBlending,
       depthWrite: false,
-      vertexColors: true
-    });
-    
-    const coreNebula = new THREE.Points(coreGeo, coreMat);
-    this.nebulaGroup.add(coreNebula);
-
-    // 2. Disco Galáctico Externo da Nebulosa (mais amplo e dinâmico)
-    const outerGeo = new THREE.BufferGeometry();
-    const outerVertices = [];
-    const outerColors = [];
-    
-    for (let i = 0; i < outerCount; i++) {
-      const r = outerStart + Math.random() * (outerEnd - outerStart);
-      const theta = Math.random() * 2 * Math.PI;
-      const phi = Math.acos(Math.random() * 2 - 1);
-      
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.sin(phi) * Math.sin(theta) * 0.12; // disco bem achatado
-      const z = r * Math.cos(phi);
-      
-      outerVertices.push(x, y, z);
-      
-      const c = colorObj.clone();
-      if (Math.random() < 0.5) {
-        const mixColor = themeColors[Math.floor(Math.random() * themeColors.length)];
-        c.lerp(mixColor, 0.4 + Math.random() * 0.4);
-      } else {
-        c.offsetHSL((Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1);
-      }
-      outerColors.push(c.r, c.g, c.b);
-    }
-    
-    outerGeo.setAttribute('position', new THREE.Float32BufferAttribute(outerVertices, 3));
-    outerGeo.setAttribute('color', new THREE.Float32BufferAttribute(outerColors, 3));
-    
-    const outerMat = new THREE.PointsMaterial({
-      size: Math.max(isMobile ? 120.0 : 250.0, maxSystemRadius * (isMobile ? 0.12 : 0.25)), // tamanho reduzido no mobile
-      map: this.textures.cloud,
-      transparent: true,
-      opacity: 0.018,
       blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      vertexColors: true
+      opacity: 0.8
     });
-    
-    const outerNebula = new THREE.Points(outerGeo, outerMat);
-    this.nebulaGroup.add(outerNebula);
-
-    // 3. Partículas de Poeira Cósmica (pontos brilhantes dentro da nebulosa, dinâmicos)
-    const dustGeo = new THREE.BufferGeometry();
-    const dustVertices = [];
-    const dustColors = [];
-    
-    for (let i = 0; i < dustCount; i++) {
-      const r = 100 + Math.random() * (maxSystemRadius * 1.1);
-      const theta = Math.random() * 2 * Math.PI;
-      const phi = Math.acos(Math.random() * 2 - 1);
-      
-      const x = r * Math.sin(phi) * Math.cos(theta);
-      const y = r * Math.sin(phi) * Math.sin(theta) * 0.2;
-      const z = r * Math.cos(phi);
-      
-      dustVertices.push(x, y, z);
-      
-      const c = new THREE.Color();
-      const rand = Math.random();
-      if (rand < 0.4) {
-        c.setHex(0x00E5FF); // Ciano
-      } else if (rand < 0.7) {
-        c.setHex(0x7C3AED); // Roxo
-      } else {
-        c.setHex(0xffffff); // Branco
-      }
-      dustColors.push(c.r, c.g, c.b);
-    }
-    
-    dustGeo.setAttribute('position', new THREE.Float32BufferAttribute(dustVertices, 3));
-    dustGeo.setAttribute('color', new THREE.Float32BufferAttribute(dustColors, 3));
-    
-    const dustMat = new THREE.PointsMaterial({
-      size: isMobile ? 2.0 : 3.5, // tamanho reduzido no mobile
-      map: this.textures.star,
-      transparent: true,
-      opacity: 0.45,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      vertexColors: true
-    });
-    
-    const dustParticles = new THREE.Points(dustGeo, dustMat);
-    this.nebulaGroup.add(dustParticles);
-
-    // Define a visibilidade inicial do grupo da nebulosa com base no bloom (modo performance)
-    this.nebulaGroup.visible = this.useBloom;
-
-    this.scene.add(this.nebulaGroup);
+    this.nebulaSprite = new THREE.Sprite(nebMat);
+    const nebWorldSize = maxSystemRadius * 2.2;
+    this.nebulaSprite.scale.set(nebWorldSize, nebWorldSize, 1);
+    this.scene.add(this.nebulaSprite);
 
     // O Sol
     if (!this.sun) {
@@ -631,7 +521,7 @@ class Universe3D {
       const sunMat = new THREE.MeshStandardMaterial({ 
         color: 0xffffff,
         emissive: 0xffffff,
-        emissiveIntensity: 1.0, 
+        emissiveIntensity: 0.5, // Brilho central bem menor 
         roughness: 0.1
       });
       this.sun = new THREE.Mesh(this.sharedSphereGeometry, sunMat);
@@ -715,35 +605,46 @@ class Universe3D {
   }
 
   onMouseMove(e) {
+    // Apenas salva a posição. O raycasting de fato ocorre no loop de animação
+    // para evitar execução excessiva a 60+ eventos/s durante o movimento.
     this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    this._mouseDirty = true;
+    this._lastMouseEvent = e;
+  }
 
+  // Separado do evento — chamado pelo loop animate() a cada 3 frames
+  _processRaycast() {
+    if (!this._mouseDirty || !this.planetMeshes.length) return;
+    this._mouseDirty = false;
+
+    const e = this._lastMouseEvent;
     this.raycaster.setFromCamera(this.mouse, this.camera);
     const intersects = this.raycaster.intersectObjects(this.planetMeshes);
 
     if (intersects.length > 0) {
       if (this.hoveredObject !== intersects[0].object) {
         if (this.hoveredObject) {
-          this.hoveredObject.material.emissiveIntensity = 0.05; // Voltar ao glow natural
+          this.hoveredObject.material.emissiveIntensity = 0.02;
         }
         this.hoveredObject = intersects[0].object;
-        this.hoveredObject.material.emissiveIntensity = 3.0; // Brilho EXTREMO no hover (Neon)
+        this.hoveredObject.material.emissiveIntensity = 2.5; // Glow intenso no hover
         
         if (this.tooltip) {
           this.tooltip.classList.remove('hidden');
-          this.tooltip.style.display = 'block'; // Forçar exibição caso o css esteja conflitando
+          this.tooltip.style.display = 'block';
           this.tooltip.textContent = this.hoveredObject.userData.name;
         }
         this.interactLayer.style.cursor = 'pointer';
       }
       
-      if (this.tooltip) {
+      if (this.tooltip && e) {
         this.tooltip.style.left = `${e.clientX}px`;
         this.tooltip.style.top = `${e.clientY - 20}px`;
       }
     } else {
       if (this.hoveredObject) {
-        this.hoveredObject.material.emissiveIntensity = 0.05; // Voltar ao glow natural
+        this.hoveredObject.material.emissiveIntensity = 0.02;
         this.hoveredObject = null;
         if (this.tooltip) {
           this.tooltip.classList.add('hidden');
@@ -776,52 +677,38 @@ class Universe3D {
 
   animate() {
     requestAnimationFrame(this.animate);
+    this._frameCount = (this._frameCount || 0) + 1;
     
     if (window.TWEEN) {
       window.TWEEN.update();
     }
     
     this.planetMeshes.forEach(mesh => {
-      // Se não estiver pausado, avança o ângulo
       if (!this.isPaused) {
         mesh.userData.angle += mesh.userData.speed;
       }
       
-      // Atualiza posição matemática independente do pause
       mesh.position.x = Math.cos(mesh.userData.angle) * mesh.userData.distance;
       mesh.position.z = Math.sin(mesh.userData.angle) * mesh.userData.distance;
       
-      // O planeta em si continua rodando no seu próprio eixo mesmo se a órbita estiver pausada?
-      // O usuário pediu "pause na orbita". Faz sentido manter a rotação local para dar vida, 
-      // ou pausar tudo. Vamos pausar tudo para ficar "estático" para clique fácil.
       if (!this.isPaused) {
-        mesh.rotation.y += 0.01; 
+        mesh.rotation.y += 0.008;
       }
     });
 
-    if (this.starGroup && !this.isPaused) {
-      this.starGroup.rotation.y += 0.0002;
+    // Raycasting throttlado: apenas a cada 3 frames (20fps é mais do que suficiente para hover)
+    if (this._frameCount % 3 === 0) {
+      this._processRaycast();
     }
 
-    if (this.nebulaGroup && !this.isPaused) {
-      // Rotaciona as camadas da nebulosa em velocidades ligeiramente diferentes para paralaxe
-      this.nebulaGroup.children.forEach((layer, idx) => {
-        const speed = (idx === 0) ? -0.0003 : (idx === 1) ? -0.000155 : 0.0002;
-        layer.rotation.y += speed;
-      });
-    }
-
-    if (this.nebulaGroup) {
-      this.nebulaGroup.visible = this.useBloom;
+    // Sprite de estrelas: rotação muito lenta para paralaxe sutil (sem custo)
+    if (this.starSprite && !this.isPaused) {
+      this.starSprite.material.rotation += 0.00005;
     }
 
     this.controls.update();
-    // Renderiza a cena: com Pós-Processamento (Bloom) ou renderização direta (Alta Performance)
-    if (this.useBloom) {
-      this.composer.render();
-    } else {
-      this.renderer.render(this.scene, this.camera);
-    }
+    // Pipeline sempre usa o composer com bloom (a cena foi otimizada para suportá-lo)
+    this.composer.render();
   }
 
   toggleDimension() {
