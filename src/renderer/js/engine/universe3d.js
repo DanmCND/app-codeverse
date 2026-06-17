@@ -1,86 +1,115 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 class Universe3D {
   constructor(containerId) {
     this.container = document.getElementById(containerId);
     
-    // Core Three.js
+    // Core Setup
     this.scene = new THREE.Scene();
-    
-    this.camera = new THREE.PerspectiveCamera(
-      45,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      10000
-    );
-    // Initial camera position (Top-down Isometric-like)
-    this.camera.position.set(0, 400, 600);
-    this.camera.lookAt(0, 0, 0);
-    this.initialCameraPos = { x: 0, y: 400, z: 600 };
+    this.scene.background = new THREE.Color(0x05070A);
+
+    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
+    this.camera.position.set(0, 150, 250);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.container.appendChild(this.renderer.domElement);
 
-    // Interaction
+    // =========================================================
+    // Camada de Interação Invisível (Mantida, pois arrumou o Zoom e Arrasto Geral)
+    // =========================================================
+    if (document.getElementById('universe-interact-layer')) {
+      document.getElementById('universe-interact-layer').remove();
+    }
+    this.interactLayer = document.createElement('div');
+    this.interactLayer.id = 'universe-interact-layer';
+    this.interactLayer.style.position = 'fixed';
+    this.interactLayer.style.top = '0';
+    this.interactLayer.style.left = '0';
+    this.interactLayer.style.width = '100%';
+    this.interactLayer.style.height = '100%';
+    this.interactLayer.style.zIndex = '5';
+    this.interactLayer.style.cursor = 'grab';
+    
+    // A CHAVE DO BUG DE ARRASTAR NO PLANETA: 
+    // Impede que o Chromium tente fazer "Drag and Drop" de imagem/link quando o cursor vira "pointer"
+    this.interactLayer.style.userSelect = 'none';
+    this.interactLayer.style.webkitUserDrag = 'none';
+    this.interactLayer.style.webkitUserSelect = 'none';
+    
+    document.body.appendChild(this.interactLayer);
+
+    this.controls = new OrbitControls(this.camera, this.interactLayer);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.05;
+    this.controls.maxDistance = 2000;
+    this.controls.enableZoom = true;
+    this.controls.enablePan = true;
+    this.controls.zoomSpeed = 1.2;
+
+    this.interactLayer.addEventListener('mousedown', () => {
+      this.interactLayer.style.cursor = 'grabbing';
+    });
+    this.interactLayer.addEventListener('mouseup', () => {
+      this.interactLayer.style.cursor = this.hoveredObject ? 'pointer' : 'grab';
+    });
+
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
     this.hoveredObject = null;
     this.tooltip = document.getElementById('planet-tooltip');
 
-    // Data
-    this.planetMeshes = [];
-    this.starParticles = null;
-    
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
     this.scene.add(ambientLight);
-    this.sunLight = new THREE.PointLight(0xffffff, 1.5, 2000);
-    this.sunLight.position.set(0, 0, 0);
+
+    this.sunLight = new THREE.PointLight(0xffffff, 2, 1000);
     this.scene.add(this.sunLight);
 
-    // Bindings
-    this.animate = this.animate.bind(this);
-    this.onWindowResize = this.onWindowResize.bind(this);
-    this.onMouseMove = this.onMouseMove.bind(this);
-    this.onClick = this.onClick.bind(this);
-    
-    window.addEventListener('resize', this.onWindowResize);
-    window.addEventListener('mousemove', this.onMouseMove);
-    window.addEventListener('click', this.onClick);
+    this.planetMeshes = [];
+    this.starParticles = null;
 
     this.createBackgroundStars();
 
-    // Start loop
+    this.animate = this.animate.bind(this);
+    this.onWindowResize = this.onWindowResize.bind(this);
+    this.onMouseMove = this.onMouseMove.bind(this);
+    
+    window.addEventListener('resize', this.onWindowResize);
+    this.interactLayer.addEventListener('pointermove', this.onMouseMove);
+    
+    // A CHAVE DO BUG DO CLIQUE:
+    // OrbitControls "engole" o evento de clique padrão. Precisamos medir a distância entre pointerdown e pointerup.
+    this.mouseDownPos = { x: 0, y: 0 };
+    this.interactLayer.addEventListener('pointerdown', (e) => {
+      this.mouseDownPos = { x: e.clientX, y: e.clientY };
+    });
+    
+    this.interactLayer.addEventListener('pointerup', (e) => {
+      const dist = Math.hypot(e.clientX - this.mouseDownPos.x, e.clientY - this.mouseDownPos.y);
+      // Se moveu menos de 5 pixels, foi um clique intencional no planeta (não arrasto de câmera)
+      if (dist < 5 && this.hoveredObject && this.hoveredObject.userData.repo) {
+        if (window.onPlanetClick) window.onPlanetClick(this.hoveredObject.userData.repo);
+      }
+    });
+
     requestAnimationFrame(this.animate);
   }
 
-  onWindowResize() {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-  }
-
   createBackgroundStars() {
-    if (this.starParticles) this.scene.remove(this.starParticles);
-
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
     for (let i = 0; i < 2000; i++) {
       vertices.push(
-        (Math.random() - 0.5) * 4000,
-        (Math.random() - 0.5) * 4000,
-        (Math.random() - 0.5) * 4000
+        (Math.random() - 0.5) * 2000,
+        (Math.random() - 0.5) * 2000,
+        (Math.random() - 0.5) * 2000
       );
     }
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     
-    const material = new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: 2,
-      transparent: true,
-      opacity: 0.6
-    });
-
+    const material = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, transparent: true, opacity: 0.4 });
     this.starParticles = new THREE.Points(geometry, material);
     this.scene.add(this.starParticles);
   }
@@ -95,86 +124,54 @@ class Universe3D {
     return colors[lang] || 0x8b949e;
   }
 
-  getFactionOffset(lang) {
-    const frontend = ['JavaScript', 'TypeScript', 'HTML', 'CSS', 'Vue', 'React'];
-    const backend = ['Java', 'C#', 'C++', 'Go', 'Rust', 'PHP', 'Ruby'];
-    const data = ['Python', 'Jupyter Notebook'];
-
-    if (frontend.includes(lang)) return { angleOffset: 0, distOffset: 0 };
-    if (backend.includes(lang)) return { angleOffset: Math.PI * (2/3), distOffset: 50 };
-    if (data.includes(lang)) return { angleOffset: Math.PI * (4/3), distOffset: 100 };
-    
-    return { angleOffset: Math.random() * Math.PI, distOffset: 150 }; // Outros
-  }
-
   createGalaxy(repos) {
-    // Clear old planets
     this.planetMeshes.forEach(mesh => {
       this.scene.remove(mesh);
       if(mesh.orbitLine) this.scene.remove(mesh.orbitLine);
     });
     this.planetMeshes = [];
 
-    // Central Sun (User Node)
-    if (!this.centralSun) {
-      const sunGeo = new THREE.SphereGeometry(25, 32, 32);
-      const sunMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      this.centralSun = new THREE.Mesh(sunGeo, sunMat);
-      this.scene.add(this.centralSun);
+    // O Sol passa a ser "clicável" apenas por estética visual, mas representa o Dev.
+    if (!this.sun) {
+      const sunGeo = new THREE.SphereGeometry(20, 32, 32);
+      const sunMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+      this.sun = new THREE.Mesh(sunGeo, sunMat);
+      this.scene.add(this.sun);
     }
 
     repos.forEach((repo, i) => {
-      // Logic for size based on commits (here approximated by size/stars for API limits)
       let radius = 2 + Math.log10(repo.size || 10) * 1.5;
       if (radius > 15) radius = 15;
       
-      const faction = this.getFactionOffset(repo.language);
-      
-      const distance = 70 + faction.distOffset + (i * 8);
-      const angle = faction.angleOffset + (Math.random() * Math.PI / 2);
-      const speed = (0.001 + Math.random() * 0.002) * (i % 2 === 0 ? 1 : -1);
-
+      const distance = 50 + (i * 12);
+      const speed = 0.001 + Math.random() * 0.003;
       const color = this.getColorForLanguage(repo.language);
 
-      // Planet Mesh
       const geo = new THREE.SphereGeometry(radius, 32, 32);
       const mat = new THREE.MeshStandardMaterial({ 
-        color: color,
-        roughness: 0.6,
-        metalness: 0.2
+        color: color, 
+        roughness: 0.6, 
+        metalness: 0.2,
+        emissive: color,
+        emissiveIntensity: 0.0
       });
       const mesh = new THREE.Mesh(geo, mat);
-      
-      // Calculate start pos
-      mesh.position.x = Math.cos(angle) * distance;
-      mesh.position.z = Math.sin(angle) * distance;
-      
-      // User data
+
       mesh.userData = {
-        repo,
-        angle,
-        distance,
-        speed,
+        repo: repo,
+        name: repo.name,
+        angle: Math.random() * Math.PI * 2,
+        distance: distance,
+        speed: speed,
         baseColor: color
       };
 
-      // Rings for highly active projects (> 50 stars)
-      if (repo.stargazers_count >= 50) {
-        const ringGeo = new THREE.RingGeometry(radius + 2, radius + 6, 32);
-        const ringMat = new THREE.MeshBasicMaterial({ color: color, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.rotation.x = Math.PI / 2 + 0.2;
-        mesh.add(ring);
-      }
-
-      // Orbit Path
       const orbitGeo = new THREE.RingGeometry(distance - 0.5, distance + 0.5, 64);
       const orbitMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.05 });
       const orbitMesh = new THREE.Mesh(orbitGeo, orbitMat);
       orbitMesh.rotation.x = Math.PI / 2;
       
       mesh.orbitLine = orbitMesh;
-
       this.scene.add(orbitMesh);
       this.scene.add(mesh);
       this.planetMeshes.push(mesh);
@@ -191,93 +188,62 @@ class Universe3D {
     if (intersects.length > 0) {
       if (this.hoveredObject !== intersects[0].object) {
         if (this.hoveredObject) {
-          this.hoveredObject.material.emissive.setHex(0x000000);
+          this.hoveredObject.material.emissiveIntensity = 0;
         }
         this.hoveredObject = intersects[0].object;
-        this.hoveredObject.material.emissive.setHex(this.hoveredObject.userData.baseColor);
-        this.hoveredObject.material.emissiveIntensity = 0.5;
+        this.hoveredObject.material.emissiveIntensity = 0.4;
         
-        // Show tooltip
-        this.tooltip.classList.remove('hidden');
-        this.tooltip.textContent = this.hoveredObject.userData.repo.name;
-        document.body.style.cursor = 'pointer';
+        if (this.tooltip) {
+          this.tooltip.classList.remove('hidden');
+          this.tooltip.style.display = 'block'; // Forçar exibição caso o css esteja conflitando
+          this.tooltip.textContent = this.hoveredObject.userData.name;
+        }
+        this.interactLayer.style.cursor = 'pointer';
       }
-      // Follow mouse
-      this.tooltip.style.left = `${e.clientX}px`;
-      this.tooltip.style.top = `${e.clientY - 20}px`;
+      
+      if (this.tooltip) {
+        this.tooltip.style.left = `${e.clientX}px`;
+        this.tooltip.style.top = `${e.clientY - 20}px`;
+      }
     } else {
       if (this.hoveredObject) {
-        this.hoveredObject.material.emissive.setHex(0x000000);
+        this.hoveredObject.material.emissiveIntensity = 0;
         this.hoveredObject = null;
-        this.tooltip.classList.add('hidden');
-        document.body.style.cursor = 'default';
+        if (this.tooltip) {
+          this.tooltip.classList.add('hidden');
+          this.tooltip.style.display = 'none';
+        }
+        this.interactLayer.style.cursor = 'grab';
       }
     }
   }
 
-  onClick(e) {
-    // Only trigger if in "tab-universe"
-    const isUniverseActive = document.getElementById('tab-universe').classList.contains('active');
-    if (!isUniverseActive) return;
-
-    if (this.hoveredObject) {
-      const repo = this.hoveredObject.userData.repo;
-      if (window.onPlanetClick) window.onPlanetClick(repo);
-
-      // Cinematic Camera Flight (Tween)
-      const targetPos = this.hoveredObject.position.clone();
-      // Offset so we don't end up inside the planet
-      const dist = this.hoveredObject.geometry.parameters.radius * 4;
-      targetPos.x += dist;
-      targetPos.y += dist;
-      targetPos.z += dist;
-
-      new TWEEN.Tween(this.camera.position)
-        .to({ x: targetPos.x, y: targetPos.y, z: targetPos.z }, 1500)
-        .easing(TWEEN.Easing.Cubic.Out)
-        .start();
-        
-      // Look at planet
-      new TWEEN.Tween(this.camera.rotation)
-        // A tricky part in Three is animating lookAt directly. 
-        // We'll let orbit controls or manual update handle it if we had orbit controls.
-        // For simplicity, we just snap lookAt in the render loop or tween the target.
-        .start();
-
-      this.currentTarget = this.hoveredObject.position;
-    }
+  onWindowResize() {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
   resetCamera() {
-    new TWEEN.Tween(this.camera.position)
-      .to(this.initialCameraPos, 2000)
-      .easing(TWEEN.Easing.Cubic.InOut)
-      .start();
-    this.currentTarget = new THREE.Vector3(0,0,0);
+    this.camera.position.set(0, 150, 250);
+    this.controls.target.set(0, 0, 0);
   }
 
-  animate(time) {
+  animate() {
     requestAnimationFrame(this.animate);
-    TWEEN.update(time);
-
-    // Orbit Logic
+    
     this.planetMeshes.forEach(mesh => {
       mesh.userData.angle += mesh.userData.speed;
       mesh.position.x = Math.cos(mesh.userData.angle) * mesh.userData.distance;
       mesh.position.z = Math.sin(mesh.userData.angle) * mesh.userData.distance;
-      mesh.rotation.y += 0.01;
+      mesh.rotation.y += 0.02; 
     });
 
     if (this.starParticles) {
-      this.starParticles.rotation.y += 0.0005;
+      this.starParticles.rotation.y += 0.0002;
     }
 
-    if (this.currentTarget) {
-      this.camera.lookAt(this.currentTarget);
-    } else {
-      this.camera.lookAt(0, 0, 0);
-    }
-
+    this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
 }

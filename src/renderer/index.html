@@ -251,14 +251,22 @@
     </section>
   </main>
 
-  <!-- External Libraries -->
-  <script src="../../node_modules/three/build/three.min.js"></script>
+  <!-- Import Map for Three.js -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../../node_modules/three/build/three.module.js",
+        "three/addons/": "../../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+
   <script src="../../node_modules/@tweenjs/tween.js/dist/tween.umd.js"></script>
   <script src="../../node_modules/chart.js/dist/chart.umd.js"></script>
 
   <!-- CodeVerse Logic -->
   <script src="js/api/github.js"></script>
-  <script src="js/engine/universe3d.js"></script>
+  <script type="module" src="js/engine/universe3d.js"></script>
   <script src="js/ui/dashboard.js"></script>
   <script src="js/app.js"></script>
 </body>

@@ -85,12 +85,12 @@
   margin-top: auto;
 }
 
-/* Content Area (75%+) */
 .content-area {
   flex-grow: 1;
   position: relative;
   height: calc(100vh - 32px);
   overflow: hidden;
+  pointer-events: none; /* Garante que toda a área de conteúdo deixe o clique passar pelo fundo */
 }
 
 .tab-content {
@@ -109,7 +109,12 @@
 
 .tab-content.active {
   opacity: 1;
-  pointer-events: all;
+  pointer-events: none; /* Deixa o clique passar para o 3D. Componentes UI internos têm pointer-events: auto */
+}
+
+/* Garante que componentes com pointer-events: auto fiquem desativados se a tab não estiver ativa */
+.tab-content:not(.active) * {
+  pointer-events: none !important;
 }
 
 /* Universo Canvas */

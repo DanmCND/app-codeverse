@@ -10,7 +10,7 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
-    "electron": "^41.7.1"
+    "electron": "^41.8.0"
   },
   "dependencies": {
     "@tweenjs/tween.js": "^25.0.0",
