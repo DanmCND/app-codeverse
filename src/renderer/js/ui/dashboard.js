@@ -70,7 +70,10 @@ class Dashboard {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'right', labels: { color: '#A0AEC0' } }
+          legend: { 
+            position: window.innerWidth < 600 ? 'bottom' : 'right', 
+            labels: { color: '#A0AEC0' } 
+          }
         }
       }
     });
