@@ -261,6 +261,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!universe3D) {
           universe3D = new Universe3D('webgl-container');
           
+          // Sincroniza o ícone do botão de glow com o estado inicial (desativado no mobile por padrão)
+          if (!universe3D.useBloom) {
+            const glowIcon = document.querySelector('#toggle-glow-btn i');
+            if (glowIcon) {
+              glowIcon.className = 'ph ph-lightning-slash';
+            }
+          }
+          
           window.onPlanetClick = (repo) => {
             document.getElementById('repo-name').textContent = repo.name;
             document.getElementById('repo-desc').textContent = repo.description || 'Sem descrição fornecida.';
