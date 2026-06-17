@@ -20,6 +20,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('min-btn').addEventListener('click', () => window.electronAPI.minimize());
     document.getElementById('max-btn').addEventListener('click', () => window.electronAPI.maximize());
     document.getElementById('close-btn').addEventListener('click', () => window.electronAPI.close());
+  } else {
+    const titlebarControls = document.querySelector('.titlebar-controls');
+    if (titlebarControls) {
+      titlebarControls.style.display = 'none';
+    }
   }
 
   const github = new GitHubService();
@@ -298,6 +303,18 @@ document.addEventListener('DOMContentLoaded', () => {
              } else {
                icon.className = 'ph ph-cube';
                showToast('Visualização 3D ativada (Perspectiva)', 'ph-cube');
+             }
+          });
+
+          document.getElementById('toggle-glow-btn').addEventListener('click', () => {
+             universe3D.useBloom = !universe3D.useBloom;
+             const icon = document.querySelector('#toggle-glow-btn i');
+             if (universe3D.useBloom) {
+               icon.className = 'ph ph-lightning';
+               showToast('Efeitos de brilho (Bloom) ativados', 'ph-sparkles');
+             } else {
+               icon.className = 'ph ph-lightning-slash';
+               showToast('Modo de Alto Desempenho (Glow desativado)', 'ph-lightning');
              }
           });
         }

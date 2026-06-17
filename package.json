@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "src/main/main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "web": "npx -y http-server src/renderer"
   },
   "keywords": [],
   "author": "",

@@ -17,8 +17,28 @@ class Universe3D {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.container.appendChild(this.renderer.domElement);
+
+    // Verificação de Aceleração de Hardware do WebGL
+    const gl = this.renderer.getContext();
+    if (gl) {
+      const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      if (debugInfo) {
+        const rendererString = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '';
+        console.log("WebGL Device Renderer:", rendererString);
+        if (rendererString.toLowerCase().includes('swiftshader') || 
+            rendererString.toLowerCase().includes('software') || 
+            rendererString.toLowerCase().includes('llvmpipe')) {
+          console.warn("Aceleração de hardware desativada detectada!");
+          setTimeout(() => {
+            if (window.showToast) {
+              window.showToast("Aceleração de hardware desativada. O visual 3D pode sofrer lentidão.", "ph-warning");
+            }
+          }, 1500);
+        }
+      }
+    }
 
     // =========================================================
     // Post-Processing (Bloom / Glow Neon)
@@ -97,6 +117,7 @@ class Universe3D {
     this.nebulaGroup = null;
     this.isPaused = false; 
     this.is2D = false; // Estado inicial da dimensão (3D)
+    this.useBloom = true; // Modo Bloom/Glow ativo por padrão
 
     // =========================================================
     // Gerenciamento de Texturas (Geradas Localmente para Performance e Offline-First)
@@ -112,7 +133,10 @@ class Universe3D {
     this.textures.gas.colorSpace = THREE.SRGBColorSpace;
     this.textures.rock.colorSpace = THREE.SRGBColorSpace;
 
-    this.createBackgroundStars();
+    // Shared unit sphere geometry for planets, atmospheres and the Sun
+    this.sharedSphereGeometry = new THREE.SphereGeometry(1, 24, 24);
+
+    this.createBackgroundStars(25000);
 
     this.animate = this.animate.bind(this);
     this.onWindowResize = this.onWindowResize.bind(this);
@@ -371,16 +395,31 @@ class Universe3D {
       depthWrite: false
     });
     
-    // A atmosfera é um pouco maior que o planeta
-    return new THREE.Mesh(new THREE.SphereGeometry(radius * 1.25, 64, 64), material);
+    // Use the shared sphere geometry and scale the mesh inside createGalaxy
+    return new THREE.Mesh(this.sharedSphereGeometry, material);
   }
 
   createGalaxy(repos, dominantLanguage = 'JavaScript') {
-    this.planetMeshes.forEach(mesh => {
-      this.scene.remove(mesh);
-    });
+    // Proper WebGL garbage collection to avoid GPU memory leaks
     if (this.orbitGroups) {
-      this.orbitGroups.forEach(group => this.scene.remove(group));
+      this.orbitGroups.forEach(group => {
+        group.traverse(child => {
+          if (child.isMesh || child.isLine || child.isLineLoop) {
+            // Dispose of custom geometries (keep the shared unit sphere geometry!)
+            if (child.geometry && child.geometry !== this.sharedSphereGeometry) {
+              child.geometry.dispose();
+            }
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(m => m.dispose());
+              } else {
+                child.material.dispose();
+              }
+            }
+          }
+        });
+        this.scene.remove(group);
+      });
     }
     this.planetMeshes = [];
     this.orbitGroups = [];
@@ -402,10 +441,17 @@ class Universe3D {
     });
     const maxSystemRadius = Math.max(500, tempDistance);
 
-    // Adapta o campo estelar de fundo de acordo com o tamanho do sistema solar
-    this.createBackgroundStars(maxSystemRadius);
-
     if (this.nebulaGroup) {
+      this.nebulaGroup.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
       this.scene.remove(this.nebulaGroup);
     }
     this.nebulaGroup = new THREE.Group();
@@ -553,7 +599,6 @@ class Universe3D {
 
     // O Sol
     if (!this.sun) {
-      const sunGeo = new THREE.SphereGeometry(15, 64, 64);
       // Brilho do sol central reduzido
       const sunMat = new THREE.MeshStandardMaterial({ 
         color: 0xffffff,
@@ -561,7 +606,8 @@ class Universe3D {
         emissiveIntensity: 1.0, 
         roughness: 0.1
       });
-      this.sun = new THREE.Mesh(sunGeo, sunMat);
+      this.sun = new THREE.Mesh(this.sharedSphereGeometry, sunMat);
+      this.sun.scale.set(15, 15, 15);
       this.scene.add(this.sun);
     }
 
@@ -570,7 +616,6 @@ class Universe3D {
       const speed = 0.001 + Math.random() * 0.003;
       const color = this.getColorForLanguage(repo.language);
 
-      const geo = new THREE.SphereGeometry(radius, 64, 64);
       // Todos os planetas agora recebem o "Novo Gráfico" (Textura Atmosférica + Halo)
       const mat = new THREE.MeshStandardMaterial({ 
         color: color, 
@@ -581,12 +626,14 @@ class Universe3D {
         emissiveIntensity: 0.02
       });
       
-      const mesh = new THREE.Mesh(geo, mat);
+      // Use the shared sphere geometry and scale the planet mesh
+      const mesh = new THREE.Mesh(this.sharedSphereGeometry, mat);
+      mesh.scale.set(radius, radius, radius);
 
       // Todos os planetas ganham o Halo atmosférico
       const atmos = this.createAtmosphere(radius, color);
-      const scale = 1.05; // Escala fixa para a atmosfera
-      atmos.scale.set(scale, scale, scale);
+      const atmosScale = 1.3125; // 1.25 (atmos radius factor) * 1.05 (fixed scale)
+      atmos.scale.set(atmosScale, atmosScale, atmosScale);
       mesh.add(atmos);
 
       // Rotação inicial aleatória
@@ -602,10 +649,16 @@ class Universe3D {
         baseColor: color
       };
 
-      const orbitGeo = new THREE.RingGeometry(distance - 0.5, distance + 0.5, 128);
-      const orbitMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.08 });
-      const orbitMesh = new THREE.Mesh(orbitGeo, orbitMat);
-      orbitMesh.rotation.x = Math.PI / 2; // Deita o anel na horizontal local
+      // Sleek vector-style orbit lines using LineLoop (extremely lightweight)
+      const orbitPoints = [];
+      const segments = 64;
+      for (let j = 0; j <= segments; j++) {
+        const theta = (j / segments) * Math.PI * 2;
+        orbitPoints.push(new THREE.Vector3(Math.cos(theta) * distance, 0, Math.sin(theta) * distance));
+      }
+      const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints);
+      const orbitMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 });
+      const orbitMesh = new THREE.LineLoop(orbitGeo, orbitMat);
       
       // Criar um Grupo para este planeta e sua órbita, permitindo inclinação 3D
       const orbitGroup = new THREE.Group();
@@ -731,8 +784,12 @@ class Universe3D {
     }
 
     this.controls.update();
-    // Renderiza a cena com Pós-Processamento (Bloom)
-    this.composer.render();
+    // Renderiza a cena: com Pós-Processamento (Bloom) ou renderização direta (Alta Performance)
+    if (this.useBloom) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   toggleDimension() {
