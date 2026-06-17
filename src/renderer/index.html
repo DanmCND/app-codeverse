@@ -123,6 +123,10 @@
           <button id="toggle-dimension-btn" class="icon-btn glass-panel" style="position: absolute; bottom: 24px; left: 136px; z-index: 15;" title="Alternar 2D / 3D">
             <i class="ph ph-cube"></i>
           </button>
+          <!-- Botão Modo Desempenho (Glow Toggle) -->
+          <button id="toggle-glow-btn" class="icon-btn glass-panel" style="position: absolute; bottom: 24px; left: 192px; z-index: 15;" title="Modo Desempenho (Ligar/Desligar Glow)">
+            <i class="ph ph-lightning"></i>
+          </button>
 
           <aside class="right-panel glass-panel hidden" id="details-panel">
             <header class="panel-header">
@@ -262,14 +266,14 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "../../node_modules/three/build/three.module.js",
-        "three/addons/": "../../node_modules/three/examples/jsm/"
+        "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.184.0/examples/jsm/"
       }
     }
   </script>
 
-  <script src="../../node_modules/@tweenjs/tween.js/dist/tween.umd.js"></script>
-  <script src="../../node_modules/chart.js/dist/chart.umd.js"></script>
+  <script src="https://unpkg.com/@tweenjs/tween.js@25.0.0/dist/tween.umd.js"></script>
+  <script src="https://unpkg.com/chart.js@4.5.1/dist/chart.umd.js"></script>
 
   <!-- CodeVerse Logic -->
   <script src="js/api/github.js"></script>
