@@ -15,7 +15,7 @@ window.showToast = function(message, icon = 'ph-info') {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Setup Titlebar Controls
+  // Titlebar
   if (window.electronAPI) {
     document.getElementById('min-btn').addEventListener('click', () => window.electronAPI.minimize());
     document.getElementById('max-btn').addEventListener('click', () => window.electronAPI.maximize());
@@ -23,7 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const github = new GitHubService();
-  let universe = null;
+  let universe3D = null;
+  let dashboardPro = new Dashboard();
   let originalCommander = null;
 
   // Elements
@@ -34,6 +35,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const mainScreen = document.getElementById('main-screen');
   const detailsPanel = document.getElementById('details-panel');
   const explorerInput = document.getElementById('explorer-input');
+  
+  // Compare Elements
+  const compareBtn = document.getElementById('compare-btn');
+  const compareInput = document.getElementById('compare-input');
 
   // Navigation Logic
   const navBtns = document.querySelectorAll('.nav-btn[data-target]');
@@ -44,9 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
       navBtns.forEach(b => b.classList.remove('active'));
       tabContents.forEach(c => {
         c.classList.remove('active');
-        setTimeout(() => {
-           if (!c.classList.contains('active')) c.classList.add('hidden');
-        }, 300);
+        setTimeout(() => { if (!c.classList.contains('active')) c.classList.add('hidden'); }, 300);
       });
       
       btn.classList.add('active');
@@ -57,17 +60,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Theme Toggle
-  const themeToggle = document.getElementById('theme-toggle');
-  themeToggle.addEventListener('click', () => {
+  // Theme
+  document.getElementById('theme-toggle').addEventListener('click', () => {
     const body = document.body;
-    const currentTheme = body.getAttribute('data-theme');
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    const newTheme = body.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
     body.setAttribute('data-theme', newTheme);
     showToast(`Tema alterado para ${newTheme === 'dark' ? 'Escuro' : 'Claro'}`, 'ph-moon');
   });
 
-  // Recent Searches Logic
+  // Recents
   const loadRecents = () => {
     const recents = JSON.parse(localStorage.getItem('codeverse_recents') || '[]');
     const list = document.getElementById('recent-list');
@@ -93,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadRecents();
   };
 
-  // Main Explore Function
+  // Main Explore
   const exploreUniverse = async (username, isInitial = false) => {
     const loader = document.getElementById('universe-loader');
     if (loader) loader.classList.remove('hidden');
@@ -102,21 +103,22 @@ document.addEventListener('DOMContentLoaded', () => {
       const user = await github.fetchUser(username);
       const repos = await github.fetchRepos(username);
 
-      if (isInitial) {
-        originalCommander = user.login;
-      }
-
+      if (isInitial) originalCommander = user.login;
       saveRecent(user.login);
 
-      // Populate Dashboard
+      // Populate User
       document.getElementById('user-name').textContent = user.name || user.login;
       document.getElementById('user-login').textContent = `@${user.login}`;
       document.getElementById('user-avatar').src = user.avatar_url;
       document.getElementById('user-avatar').classList.remove('hidden');
 
+      // Populate Dashboard Core Metrics
       document.getElementById('metric-repos').textContent = repos.length;
       document.getElementById('metric-stars').textContent = github.getTotalStars(repos);
       document.getElementById('metric-lang').textContent = github.getDominantLanguage(repos);
+      
+      const uniqueLangs = new Set(repos.map(r => r.language).filter(Boolean));
+      document.getElementById('metric-lang-count').textContent = uniqueLangs.size;
       
       const recentRepos = repos.slice(0, 10);
       let mostActive = recentRepos[0];
@@ -134,15 +136,54 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('metric-active-desc').textContent = "";
       }
 
-      // Badges Update
+      // Insights & Chart
+      document.getElementById('ai-insights').textContent = dashboardPro.generateInsights(repos, user);
+      dashboardPro.updateChart(repos);
+
+      // Populate Timeline
+      const timelineContainer = document.getElementById('timeline-container');
+      timelineContainer.innerHTML = '';
+      
+      const reposByYear = {};
+      repos.forEach(r => {
+        const year = new Date(r.created_at).getFullYear();
+        if(!reposByYear[year]) reposByYear[year] = [];
+        reposByYear[year].push(r);
+      });
+
+      Object.keys(reposByYear).sort((a,b) => b - a).forEach(year => {
+        const item = document.createElement('div');
+        item.className = 'timeline-item';
+        
+        let reposHtml = reposByYear[year].map(r => `
+          <div class="timeline-repo">
+            <i class="ph ph-git-commit"></i> ${r.name}
+          </div>
+        `).join('');
+
+        item.innerHTML = `
+          <div class="timeline-year">${year}</div>
+          <div class="timeline-repos">${reposHtml}</div>
+        `;
+        timelineContainer.appendChild(item);
+      });
+
+      // Update Compare User A Side
+      document.getElementById('comp-a-name').textContent = user.login;
+      document.getElementById('comp-a-avatar').src = user.avatar_url;
+      document.getElementById('comp-a-repos').textContent = repos.length;
+      document.getElementById('comp-a-stars').textContent = github.getTotalStars(repos);
+      document.getElementById('comp-a-lang').textContent = github.getDominantLanguage(repos);
+
+      // Badges
       const badgesContainer = document.getElementById('badges-container');
       badgesContainer.innerHTML = '';
-      
       const badges = [
-        { icon: 'ph-rocket', title: 'Explorador', earned: repos.length >= 5 },
-        { icon: 'ph-star', title: 'Astronauta', earned: repos.length >= 10 },
-        { icon: 'ph-planet', title: 'Mestre Galáctico', earned: repos.length >= 20 },
-        { icon: 'ph-crown', title: 'Dev Lendário', earned: repos.length >= 50 }
+        { icon: 'ph-rocket', title: 'Explorador Novato', earned: repos.length >= 5 },
+        { icon: 'ph-star', title: 'Cadete Espacial', earned: repos.length >= 10 },
+        { icon: 'ph-planet', title: 'Engenheiro Orbital', earned: repos.length >= 20 },
+        { icon: 'ph-galaxy', title: 'Arquiteto Galáctico', earned: repos.length >= 50 },
+        { icon: 'ph-crown', title: 'Imperador do Código', earned: repos.length >= 100 }
       ];
 
       badges.forEach(b => {
@@ -154,20 +195,45 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       // Update Universe
-      if (universe) {
-        universe.createGalaxy(repos);
-        detailsPanel.classList.add('hidden'); // close details panel if open
+      if (universe3D) {
+        universe3D.createGalaxy(repos);
+        detailsPanel.classList.add('hidden');
       }
 
       showToast(`Viajando para o universo de ${user.login}...`, 'ph-rocket');
 
     } catch (err) {
       showToast('Usuário não encontrado na galáxia.', 'ph-warning');
-      throw err; // throw so initial load doesn't transition on bad username
+      throw err;
     } finally {
       if (loader) loader.classList.add('hidden');
     }
   };
+
+  // Compare Function
+  compareBtn.addEventListener('click', async () => {
+    const target = compareInput.value.trim();
+    if (!target) return;
+    
+    compareBtn.disabled = true;
+    
+    try {
+      const userB = await github.fetchUser(target);
+      const reposB = await github.fetchRepos(target);
+
+      document.getElementById('compare-arena').classList.remove('hidden');
+      document.getElementById('comp-b-name').textContent = userB.login;
+      document.getElementById('comp-b-avatar').src = userB.avatar_url;
+      document.getElementById('comp-b-repos').textContent = reposB.length;
+      document.getElementById('comp-b-stars').textContent = github.getTotalStars(reposB);
+      document.getElementById('comp-b-lang').textContent = github.getDominantLanguage(reposB);
+      
+    } catch (err) {
+      showToast('Usuário não encontrado para duelo.', 'ph-warning');
+    } finally {
+      compareBtn.disabled = false;
+    }
+  });
 
   // Gateway Initial Explore
   exploreBtn.addEventListener('click', async () => {
@@ -178,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
     gatewayLoader.classList.remove('hidden');
 
     try {
-      await github.fetchUser(username); // fast check before transition
+      await github.fetchUser(username); 
       
       gatewayScreen.classList.remove('active');
       setTimeout(() => gatewayScreen.classList.add('hidden'), 500);
@@ -186,8 +252,8 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => {
         mainScreen.classList.add('active');
         
-        if (!universe) {
-          universe = new Universe('universe-canvas');
+        if (!universe3D) {
+          universe3D = new Universe3D('webgl-container');
           
           window.onPlanetClick = (repo) => {
             document.getElementById('repo-name').textContent = repo.name;
@@ -201,13 +267,13 @@ document.addEventListener('DOMContentLoaded', () => {
             detailsPanel.classList.remove('hidden');
           };
 
-          window.onEmptySpaceClick = () => {
-            detailsPanel.classList.add('hidden');
-          };
-
           document.getElementById('close-details-btn').addEventListener('click', () => {
             detailsPanel.classList.add('hidden');
-            universe.selectedPlanet = null;
+          });
+
+          document.getElementById('reset-camera-btn').addEventListener('click', () => {
+             universe3D.resetCamera();
+             detailsPanel.classList.add('hidden');
           });
         }
         
@@ -223,9 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   usernameInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      exploreBtn.click();
-    }
+    if (e.key === 'Enter') exploreBtn.click();
   });
 
   // Sidebar Explorer
@@ -234,20 +298,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const target = explorerInput.value.trim();
       if (target) {
         document.querySelector('.nav-btn[data-target="tab-universe"]').click();
-        exploreUniverse(target).catch(() => {}); // catch handled in exploreUniverse
+        exploreUniverse(target).catch(() => {});
         explorerInput.value = '';
       }
     }
   });
 
-  // Share & My Universe actions
+  compareInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') compareBtn.click();
+  });
+
   document.getElementById('share-btn').addEventListener('click', () => {
     const login = document.getElementById('user-login').textContent.replace('@', '');
-    const url = `https://github.com/${login}`;
-    navigator.clipboard.writeText(url).then(() => {
+    navigator.clipboard.writeText(`https://github.com/${login}`).then(() => {
       showToast('Universo compartilhado! Link copiado.', 'ph-share-network');
-    }).catch(() => {
-      showToast('Erro ao copiar link.', 'ph-warning');
     });
   });
 
@@ -258,6 +322,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Init Recents on load
   loadRecents();
 });

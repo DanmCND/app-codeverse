@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CodeVerse</title>
+  <title>CodeVerse V3</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/gateway.css">
   <link rel="stylesheet" href="css/universe.css">
@@ -13,9 +13,12 @@
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 </head>
 <body data-theme="dark">
+  <!-- Three.js Canvas Container (Background) -->
+  <div id="webgl-container"></div>
+
   <header class="titlebar">
     <div class="titlebar-drag-region"></div>
-    <div class="titlebar-title">CodeVerse // Terminal</div>
+    <div class="titlebar-title">CodeVerse // v3.0 Definitivo</div>
     <div class="titlebar-controls">
       <button class="control-btn minimize" id="min-btn"><i class="ph ph-minus"></i></button>
       <button class="control-btn maximize" id="max-btn"><i class="ph ph-square"></i></button>
@@ -24,14 +27,14 @@
   </header>
 
   <div id="toast-container" class="toast-container"></div>
+  <div id="planet-tooltip" class="planet-tooltip hidden"></div>
 
   <main id="app-container">
     <!-- Gateway Screen -->
     <section id="gateway-screen" class="screen active">
-      <div id="stars-background"></div>
       <div class="gateway-card glass-panel">
         <h1 class="logo">Code<span class="highlight">Verse</span></h1>
-        <p class="subtitle">Sincronize com a Base de Dados Galáctica</p>
+        <p class="subtitle">Explore universos de código em 3D.</p>
         
         <div class="input-group">
           <i class="ph ph-github-logo"></i>
@@ -39,26 +42,25 @@
         </div>
         
         <button id="explore-btn" class="sci-fi-btn">
-          <span class="btn-text">Explorar Universo</span>
+          <span class="btn-text">Iniciar Ignição</span>
           <i class="ph ph-rocket-launch"></i>
         </button>
         <div class="loader hidden" id="gateway-loader">
           <div class="spinner"></div>
-          <span>Sincronizando...</span>
+          <span>Sincronizando Banco de Dados Galáctico...</span>
         </div>
       </div>
     </section>
 
-    <!-- Main App Screen (Split Layout) -->
+    <!-- Main App Screen -->
     <section id="main-screen" class="screen hidden">
       <!-- Sidebar de Navegação -->
       <aside class="main-sidebar glass-panel">
         
-        <!-- Search Explorer -->
         <div class="sidebar-search">
           <div class="input-group-small">
             <i class="ph ph-magnifying-glass"></i>
-            <input type="text" id="explorer-input" placeholder="Buscar usuário GitHub..." autocomplete="off">
+            <input type="text" id="explorer-input" placeholder="Buscar desenvolvedor..." autocomplete="off">
           </div>
         </div>
 
@@ -76,17 +78,21 @@
 
         <div class="recent-searches">
           <span class="recent-label">Recentes:</span>
-          <div class="recent-list" id="recent-list">
-            <!-- JS vai popular -->
-          </div>
+          <div class="recent-list" id="recent-list"></div>
         </div>
 
         <nav class="sidebar-nav">
           <button class="nav-btn active" data-target="tab-universe">
-            <i class="ph ph-planet"></i> Universo
+            <i class="ph ph-planet"></i> Universo 3D
           </button>
           <button class="nav-btn" data-target="tab-dashboard">
-            <i class="ph ph-squares-four"></i> Dashboard
+            <i class="ph ph-chart-pie-slice"></i> Analytics
+          </button>
+          <button class="nav-btn" data-target="tab-timeline">
+            <i class="ph ph-clock-counter-clockwise"></i> Timeline Galáctica
+          </button>
+          <button class="nav-btn" data-target="tab-compare">
+            <i class="ph ph-scales"></i> Arena / Comparador
           </button>
           <button class="nav-btn" data-target="tab-achievements">
             <i class="ph ph-medal"></i> Conquistas
@@ -99,31 +105,30 @@
 
       <!-- Content Area -->
       <div class="content-area">
-        <!-- Aba: Universo -->
-        <div id="tab-universe" class="tab-content active">
-          
-          <div id="universe-loader" class="universe-loader hidden">
-            <div class="spinner"></div>
-            <span>Viajando na velocidade da luz...</span>
-          </div>
+        <div id="universe-loader" class="universe-loader hidden">
+          <div class="spinner"></div>
+          <span>Viajando na velocidade da luz...</span>
+        </div>
 
-          <div class="canvas-container" id="canvas-container">
-            <canvas id="universe-canvas"></canvas>
-            <div id="planet-tooltip" class="planet-tooltip hidden"></div>
-          </div>
-          
+        <!-- Tab: Universo (Apenas o painel lateral; o WebGL fica ao fundo global) -->
+        <div id="tab-universe" class="tab-content active">
+          <!-- Botão Reset Camera -->
+          <button id="reset-camera-btn" class="icon-btn glass-panel" style="position: absolute; bottom: 24px; left: 24px; z-index: 15;" title="Resetar Câmera">
+            <i class="ph ph-crosshair"></i>
+          </button>
+
           <aside class="right-panel glass-panel hidden" id="details-panel">
             <header class="panel-header">
-              <h2 id="repo-name">Nome do Repo</h2>
+              <h2 id="repo-name">Repo Name</h2>
               <button id="close-details-btn" class="icon-btn"><i class="ph ph-x"></i></button>
             </header>
             
             <div class="repo-stats">
-              <p class="repo-desc" id="repo-desc">Descrição do projeto...</p>
+              <p class="repo-desc" id="repo-desc">Description</p>
               
               <div class="stat-row">
                 <i class="ph ph-code"></i>
-                <span id="repo-lang" class="tech-badge">Linguagem</span>
+                <span id="repo-lang" class="tech-badge">Lang</span>
               </div>
               
               <div class="stat-row">
@@ -138,7 +143,7 @@
 
               <div class="stat-row">
                 <i class="ph ph-clock"></i>
-                <span>Atualizado: <span id="repo-updated">Data</span></span>
+                <span>Atualizado: <span id="repo-updated">Date</span></span>
               </div>
             </div>
             
@@ -149,10 +154,17 @@
           </aside>
         </div>
 
-        <!-- Aba: Dashboard -->
+        <!-- Tab: Dashboard -->
         <div id="tab-dashboard" class="tab-content hidden">
           <div class="dashboard-wrapper glass-panel">
-            <h2 class="section-title">Dashboard Galáctico</h2>
+            <h2 class="section-title">Dashboard Analítico</h2>
+            
+            <!-- IA Insights -->
+            <div class="insights-box">
+              <i class="ph ph-brain insight-icon"></i>
+              <div class="insight-text" id="ai-insights">Analisando inteligência do perfil...</div>
+            </div>
+
             <div class="metrics-grid">
               <div class="metric-card">
                 <span class="metric-label">Repositórios</span>
@@ -166,30 +178,88 @@
                 <span class="metric-label">Linguagem Dominante</span>
                 <span class="metric-value highlight" id="metric-lang">-</span>
               </div>
+              <div class="metric-card">
+                <span class="metric-label">Total de Linguagens</span>
+                <span class="metric-value highlight" id="metric-lang-count">0</span>
+              </div>
               <div class="metric-card full-width">
                 <span class="metric-label">Projeto Mais Ativo</span>
                 <span class="metric-value highlight" id="metric-active">-</span>
                 <span class="metric-sub" id="metric-active-desc" style="color: var(--text-muted); font-size: 13px; margin-top: 8px;"></span>
               </div>
+              
+              <!-- Chart Container -->
+              <div class="metric-card full-width chart-container" style="height: 250px; position: relative;">
+                <canvas id="lang-chart"></canvas>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Aba: Achievements -->
+        <!-- Tab: Timeline -->
+        <div id="tab-timeline" class="tab-content hidden">
+          <div class="dashboard-wrapper glass-panel" style="overflow-y: auto;">
+            <h2 class="section-title">Timeline Galáctica</h2>
+            <div class="timeline-container" id="timeline-container">
+              <!-- JS Populates this with vertical timeline -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Compare -->
+        <div id="tab-compare" class="tab-content hidden">
+          <div class="dashboard-wrapper glass-panel">
+            <h2 class="section-title">Arena de Comparação</h2>
+            <div class="compare-search">
+              <input type="text" id="compare-input" class="sci-fi-input" placeholder="Usuário para desafiar..." autocomplete="off">
+              <button id="compare-btn" class="sci-fi-btn"><i class="ph ph-swords"></i> Comparar</button>
+            </div>
+            
+            <div class="compare-arena hidden" id="compare-arena">
+              <div class="compare-col" id="col-a">
+                <img src="" id="comp-a-avatar" class="avatar-large">
+                <h3 id="comp-a-name" class="highlight">Usuário A</h3>
+                <div class="stat-vs"><i class="ph ph-planet"></i> Repos: <span id="comp-a-repos">0</span></div>
+                <div class="stat-vs"><i class="ph ph-star"></i> Stars: <span id="comp-a-stars">0</span></div>
+                <div class="stat-vs"><i class="ph ph-code"></i> Domínio: <span id="comp-a-lang">-</span></div>
+              </div>
+              
+              <div class="compare-vs-divider"><h1>VS</h1></div>
+              
+              <div class="compare-col" id="col-b">
+                <img src="" id="comp-b-avatar" class="avatar-large">
+                <h3 id="comp-b-name" class="highlight">Usuário B</h3>
+                <div class="stat-vs"><i class="ph ph-planet"></i> Repos: <span id="comp-b-repos">0</span></div>
+                <div class="stat-vs"><i class="ph ph-star"></i> Stars: <span id="comp-b-stars">0</span></div>
+                <div class="stat-vs"><i class="ph ph-code"></i> Domínio: <span id="comp-b-lang">-</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Achievements -->
         <div id="tab-achievements" class="tab-content hidden">
           <div class="achievements-wrapper glass-panel">
             <h2 class="section-title">Suas Conquistas</h2>
             <div class="badges-container" id="badges-container">
-              <!-- Badges populados por JS -->
+              <!-- JS -->
             </div>
           </div>
         </div>
+
       </div>
     </section>
   </main>
 
-  <script src="js/github.js"></script>
-  <script src="js/universe.js"></script>
+  <!-- External Libraries -->
+  <script src="../../node_modules/three/build/three.min.js"></script>
+  <script src="../../node_modules/@tweenjs/tween.js/dist/tween.umd.js"></script>
+  <script src="../../node_modules/chart.js/dist/chart.umd.js"></script>
+
+  <!-- CodeVerse Logic -->
+  <script src="js/api/github.js"></script>
+  <script src="js/engine/universe3d.js"></script>
+  <script src="js/ui/dashboard.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
