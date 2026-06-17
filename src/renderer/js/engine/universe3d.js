@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 class Universe3D {
   constructor(containerId) {
@@ -16,6 +19,21 @@ class Universe3D {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.container.appendChild(this.renderer.domElement);
+
+    // =========================================================
+    // Post-Processing (Bloom / Glow Neon)
+    // =========================================================
+    const renderScene = new RenderPass(this.scene, this.camera);
+    // Resolvendo alpha: renderScene.clear = true
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      2.0, // intensity maior
+      0.5, // radius maior
+      0.2  // threshold baixo (qualquer emissive forte vai brilhar)
+    );
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(renderScene);
+    this.composer.addPass(bloomPass);
 
     // =========================================================
     // Camada de Interação Invisível (Mantida, pois arrumou o Zoom e Arrasto Geral)
@@ -67,8 +85,11 @@ class Universe3D {
     this.sunLight = new THREE.PointLight(0xffffff, 2, 1000);
     this.scene.add(this.sunLight);
 
+    // Grupos de órbita para inclinação 3D
+    this.orbitGroups = [];
     this.planetMeshes = [];
     this.starParticles = null;
+    this.isPaused = false; // Estado do botão de Pausa
 
     this.createBackgroundStars();
 
@@ -124,56 +145,130 @@ class Universe3D {
     return colors[lang] || 0x8b949e;
   }
 
-  createGalaxy(repos) {
+  createGalaxy(repos, dominantLanguage = 'JavaScript') {
     this.planetMeshes.forEach(mesh => {
       this.scene.remove(mesh);
-      if(mesh.orbitLine) this.scene.remove(mesh.orbitLine);
     });
+    if (this.orbitGroups) {
+      this.orbitGroups.forEach(group => this.scene.remove(group));
+    }
     this.planetMeshes = [];
+    this.orbitGroups = [];
 
-    // O Sol passa a ser "clicável" apenas por estética visual, mas representa o Dev.
+    if (this.nebulaParticles) {
+      this.scene.remove(this.nebulaParticles);
+    }
+
+    // Criar Nebulosa Volumétrica baseada na linguagem predominante
+    const nebulaColor = this.getColorForLanguage(dominantLanguage);
+    const nebulaGeo = new THREE.BufferGeometry();
+    const nebulaVertices = [];
+    for (let i = 0; i < 4000; i++) {
+      const r = 200 + Math.random() * 800; // Raio (começa depois dos planetas)
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      
+      // Distribuição mais "torta" pra parecer nuvem
+      nebulaVertices.push(
+        r * Math.sin(phi) * Math.cos(theta) * (Math.random() * 0.5 + 0.5),
+        r * Math.sin(phi) * Math.sin(theta) * 0.2, // Achatado no eixo Y
+        r * Math.cos(phi) * (Math.random() * 0.5 + 0.5)
+      );
+    }
+    nebulaGeo.setAttribute('position', new THREE.Float32BufferAttribute(nebulaVertices, 3));
+    
+    // Shader minimalista via Material para simular poeira
+    const nebulaMat = new THREE.PointsMaterial({ 
+      color: nebulaColor, 
+      size: 4.0, 
+      transparent: true, 
+      opacity: 0.15,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    
+    this.nebulaParticles = new THREE.Points(nebulaGeo, nebulaMat);
+    this.scene.add(this.nebulaParticles);
+
+    // O Sol
     if (!this.sun) {
-      const sunGeo = new THREE.SphereGeometry(20, 32, 32);
-      const sunMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+      const sunGeo = new THREE.SphereGeometry(15, 64, 64);
+      // Sol agora emite muita luz (Glow Neon)
+      const sunMat = new THREE.MeshStandardMaterial({ 
+        color: 0xffffff,
+        emissive: 0xffffff,
+        emissiveIntensity: 2.0,
+        roughness: 0.1
+      });
       this.sun = new THREE.Mesh(sunGeo, sunMat);
       this.scene.add(this.sun);
     }
 
+    let currentDistance = 40; // Distância inicial a partir do Sol
+
     repos.forEach((repo, i) => {
-      let radius = 2 + Math.log10(repo.size || 10) * 1.5;
-      if (radius > 15) radius = 15;
+      // Ajuste "Meio-Termo": Usando uma potência suave e bônus logarítmico para as estrelas
+      // Isso cria uma diferença perceptível sem estourar o tamanho da tela
+      let sizeScore = repo.size || 10;
+      let radius = 2.5 + Math.pow(sizeScore, 0.25) * 1.2; 
       
-      const distance = 50 + (i * 12);
+      // Bônus moderado para repositórios com estrelas
+      radius += Math.log2((repo.stargazers_count || 0) + 1) * 0.5;
+      
+      // Limites: Maior que o antigo (15), menor que o extremo (45)
+      if (radius > 22) radius = 22;
+      if (radius < 3) radius = 3;
+      
+      // Variação na distância da órbita: o "gap" depende do tamanho do planeta
+      // Planetas maiores geram espaçamentos maiores, parecendo um sistema solar real
+      let orbitGap = 15 + (radius * 1.8) + (Math.random() * 15);
+      currentDistance += orbitGap;
+      
+      const distance = currentDistance;
       const speed = 0.001 + Math.random() * 0.003;
       const color = this.getColorForLanguage(repo.language);
 
-      const geo = new THREE.SphereGeometry(radius, 32, 32);
+      const geo = new THREE.SphereGeometry(radius, 64, 64);
       const mat = new THREE.MeshStandardMaterial({ 
         color: color, 
-        roughness: 0.6, 
-        metalness: 0.2,
+        roughness: 0.5 + Math.random() * 0.5, 
+        metalness: Math.random() * 0.3,
         emissive: color,
-        emissiveIntensity: 0.0
+        emissiveIntensity: 0.05
       });
       const mesh = new THREE.Mesh(geo, mat);
+
+      // Rotação inicial aleatória
+      mesh.rotation.x = Math.random() * Math.PI;
+      mesh.rotation.y = Math.random() * Math.PI;
 
       mesh.userData = {
         repo: repo,
         name: repo.name,
-        angle: Math.random() * Math.PI * 2,
+        angle: Math.random() * Math.PI * 2, // Posição inicial na órbita
         distance: distance,
         speed: speed,
         baseColor: color
       };
 
-      const orbitGeo = new THREE.RingGeometry(distance - 0.5, distance + 0.5, 64);
-      const orbitMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.05 });
+      const orbitGeo = new THREE.RingGeometry(distance - 0.5, distance + 0.5, 128);
+      const orbitMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.08 });
       const orbitMesh = new THREE.Mesh(orbitGeo, orbitMat);
-      orbitMesh.rotation.x = Math.PI / 2;
+      orbitMesh.rotation.x = Math.PI / 2; // Deita o anel na horizontal local
       
-      mesh.orbitLine = orbitMesh;
-      this.scene.add(orbitMesh);
-      this.scene.add(mesh);
+      // Criar um Grupo para este planeta e sua órbita, permitindo inclinação 3D
+      const orbitGroup = new THREE.Group();
+      
+      // Inclinação aleatória da órbita (entre -15 e +15 graus no X e Z)
+      const maxTilt = 15 * (Math.PI / 180);
+      orbitGroup.rotation.x = (Math.random() - 0.5) * 2 * maxTilt;
+      orbitGroup.rotation.z = (Math.random() - 0.5) * 2 * maxTilt;
+      
+      orbitGroup.add(orbitMesh);
+      orbitGroup.add(mesh);
+      
+      this.scene.add(orbitGroup);
+      this.orbitGroups.push(orbitGroup);
       this.planetMeshes.push(mesh);
     });
   }
@@ -188,10 +283,10 @@ class Universe3D {
     if (intersects.length > 0) {
       if (this.hoveredObject !== intersects[0].object) {
         if (this.hoveredObject) {
-          this.hoveredObject.material.emissiveIntensity = 0;
+          this.hoveredObject.material.emissiveIntensity = 0.05; // Voltar ao glow natural
         }
         this.hoveredObject = intersects[0].object;
-        this.hoveredObject.material.emissiveIntensity = 0.4;
+        this.hoveredObject.material.emissiveIntensity = 3.0; // Brilho EXTREMO no hover (Neon)
         
         if (this.tooltip) {
           this.tooltip.classList.remove('hidden');
@@ -207,7 +302,7 @@ class Universe3D {
       }
     } else {
       if (this.hoveredObject) {
-        this.hoveredObject.material.emissiveIntensity = 0;
+        this.hoveredObject.material.emissiveIntensity = 0.05; // Voltar ao glow natural
         this.hoveredObject = null;
         if (this.tooltip) {
           this.tooltip.classList.add('hidden');
@@ -222,6 +317,7 @@ class Universe3D {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
   }
 
   resetCamera() {
@@ -229,22 +325,42 @@ class Universe3D {
     this.controls.target.set(0, 0, 0);
   }
 
+  togglePause() {
+    this.isPaused = !this.isPaused;
+  }
+
   animate() {
     requestAnimationFrame(this.animate);
     
     this.planetMeshes.forEach(mesh => {
-      mesh.userData.angle += mesh.userData.speed;
+      // Se não estiver pausado, avança o ângulo
+      if (!this.isPaused) {
+        mesh.userData.angle += mesh.userData.speed;
+      }
+      
+      // Atualiza posição matemática independente do pause
       mesh.position.x = Math.cos(mesh.userData.angle) * mesh.userData.distance;
       mesh.position.z = Math.sin(mesh.userData.angle) * mesh.userData.distance;
-      mesh.rotation.y += 0.02; 
+      
+      // O planeta em si continua rodando no seu próprio eixo mesmo se a órbita estiver pausada?
+      // O usuário pediu "pause na orbita". Faz sentido manter a rotação local para dar vida, 
+      // ou pausar tudo. Vamos pausar tudo para ficar "estático" para clique fácil.
+      if (!this.isPaused) {
+        mesh.rotation.y += 0.01; 
+      }
     });
 
-    if (this.starParticles) {
+    if (this.starParticles && !this.isPaused) {
       this.starParticles.rotation.y += 0.0002;
     }
 
+    if (this.nebulaParticles) {
+      this.nebulaParticles.rotation.y -= 0.0005; // Nebulosa gira devagar e ao contrário
+    }
+
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    // Renderiza a cena com Pós-Processamento (Bloom)
+    this.composer.render();
   }
 }
 

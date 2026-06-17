@@ -196,7 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Update Universe
       if (universe3D) {
-        universe3D.createGalaxy(repos);
+        const dominantLanguage = github.getDominantLanguage(repos);
+        universe3D.createGalaxy(repos, dominantLanguage);
         detailsPanel.classList.add('hidden');
       }
 
@@ -274,6 +275,18 @@ document.addEventListener('DOMContentLoaded', () => {
           document.getElementById('reset-camera-btn').addEventListener('click', () => {
              universe3D.resetCamera();
              detailsPanel.classList.add('hidden');
+          });
+
+          document.getElementById('pause-orbit-btn').addEventListener('click', (e) => {
+             universe3D.togglePause();
+             const icon = document.querySelector('#pause-orbit-btn i');
+             if (universe3D.isPaused) {
+               icon.classList.remove('ph-pause');
+               icon.classList.add('ph-play');
+             } else {
+               icon.classList.remove('ph-play');
+               icon.classList.add('ph-pause');
+             }
           });
         }
         
