@@ -12,7 +12,7 @@ class Universe3D {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x05070A);
 
-    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 30000);
+    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100000);
     this.camera.position.set(0, 150, 250);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -93,7 +93,7 @@ class Universe3D {
     // Grupos de órbita para inclinação 3D
     this.orbitGroups = [];
     this.planetMeshes = [];
-    this.starParticles = null;
+    this.starGroup = null;
     this.nebulaGroup = null;
     this.isPaused = false; 
     this.is2D = false; // Estado inicial da dimensão (3D)
@@ -266,43 +266,72 @@ class Universe3D {
   }
 
   createBackgroundStars(systemRadius = 1200) {
-    if (this.starParticles) {
-      this.scene.remove(this.starParticles);
+    // Remove o grupo de estrelas se ele já existir
+    if (this.starGroup) {
+      this.scene.remove(this.starGroup);
     }
 
-    const geometry = new THREE.BufferGeometry();
-    const vertices = [];
-    
+    this.starGroup = new THREE.Group();
+
     // Define limites dinâmicos para a casca de estrelas (background) de modo que sempre fiquem no fundo
     const minRadius = Math.max(systemRadius * 2.0, 10000);
     const maxRadius = Math.max(systemRadius * 4.0, 25000);
-    
-    for (let i = 0; i < 8000; i++) {
+
+    // 1. Estrelas pequenas de fundo (tênues e numerosas)
+    const smallGeo = new THREE.BufferGeometry();
+    const smallVertices = [];
+    for (let i = 0; i < 6000; i++) {
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(Math.random() * 2 - 1);
-      
-      // Distribuição volumétrica uniforme dentro da casca esférica (para evitar agrupamentos)
       const r = Math.cbrt(Math.random() * (Math.pow(maxRadius, 3) - Math.pow(minRadius, 3)) + Math.pow(minRadius, 3));
-      
-      vertices.push(
+      smallVertices.push(
         r * Math.sin(phi) * Math.cos(theta),
         r * Math.sin(phi) * Math.sin(theta),
         r * Math.cos(phi)
       );
     }
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    
-    const material = new THREE.PointsMaterial({ 
-      color: 0xffffff, 
-      size: 6.0, // Aumentado ligeiramente para manter o brilho mesmo a maior distância
+    smallGeo.setAttribute('position', new THREE.Float32BufferAttribute(smallVertices, 3));
+    const smallMat = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 1.8, // Tamanho fixo em pixels (sizeAttenuation: false)
+      sizeAttenuation: false,
       map: this.textures.star,
-      transparent: true, 
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const smallStars = new THREE.Points(smallGeo, smallMat);
+    this.starGroup.add(smallStars);
+
+    // 2. Estrelas médias/brilhantes (maiores e menos numerosas)
+    const brightGeo = new THREE.BufferGeometry();
+    const brightVertices = [];
+    for (let i = 0; i < 2000; i++) {
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      const r = Math.cbrt(Math.random() * (Math.pow(maxRadius, 3) - Math.pow(minRadius, 3)) + Math.pow(minRadius, 3));
+      brightVertices.push(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
+      );
+    }
+    brightGeo.setAttribute('position', new THREE.Float32BufferAttribute(brightVertices, 3));
+    const brightMat = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 3.0, // Tamanho fixo em pixels (sizeAttenuation: false)
+      sizeAttenuation: false,
+      map: this.textures.star,
+      transparent: true,
       opacity: 0.85,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
-    this.starParticles = new THREE.Points(geometry, material);
-    this.scene.add(this.starParticles);
+    const brightStars = new THREE.Points(brightGeo, brightMat);
+    this.starGroup.add(brightStars);
+
+    this.scene.add(this.starGroup);
   }
 
   getColorForLanguage(lang) {
@@ -689,8 +718,8 @@ class Universe3D {
       }
     });
 
-    if (this.starParticles && !this.isPaused) {
-      this.starParticles.rotation.y += 0.0002;
+    if (this.starGroup && !this.isPaused) {
+      this.starGroup.rotation.y += 0.0002;
     }
 
     if (this.nebulaGroup && !this.isPaused) {
