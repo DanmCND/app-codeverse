@@ -82,14 +82,29 @@ class Universe3D {
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
     this.scene.add(ambientLight);
 
-    this.sunLight = new THREE.PointLight(0xffffff, 2, 1000);
+    this.sunLight = new THREE.PointLight(0xffffff, 1.5, 1000); // Brilho do sol reduzido de 2 para 1.5
     this.scene.add(this.sunLight);
 
     // Grupos de órbita para inclinação 3D
     this.orbitGroups = [];
     this.planetMeshes = [];
     this.starParticles = null;
-    this.isPaused = false; // Estado do botão de Pausa
+    this.isPaused = false; 
+
+    // =========================================================
+    // Gerenciamento de Texturas Reais
+    // =========================================================
+    this.textureLoader = new THREE.TextureLoader();
+    this.textureLoader.setCrossOrigin('anonymous');
+    this.textures = {
+      gas: this.textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/jupiter.jpg'),
+      rock: this.textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/moon_1024.jpg'),
+      cloud: this.textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/cloud.png'),
+    };
+    
+    // Garantir que a textura de gás possa ser colorida mantendo o padrão da linguagem
+    this.textures.gas.colorSpace = THREE.SRGBColorSpace;
+    this.textures.rock.colorSpace = THREE.SRGBColorSpace;
 
     this.createBackgroundStars();
 
@@ -121,16 +136,16 @@ class Universe3D {
   createBackgroundStars() {
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
-    for (let i = 0; i < 2000; i++) {
+    for (let i = 0; i < 6000; i++) {
       vertices.push(
-        (Math.random() - 0.5) * 2000,
-        (Math.random() - 0.5) * 2000,
-        (Math.random() - 0.5) * 2000
+        (Math.random() - 0.5) * 4000,
+        (Math.random() - 0.5) * 4000,
+        (Math.random() - 0.5) * 4000
       );
     }
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     
-    const material = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, transparent: true, opacity: 0.4 });
+    const material = new THREE.PointsMaterial({ color: 0xffffff, size: 2.0, transparent: true, opacity: 0.8 });
     this.starParticles = new THREE.Points(geometry, material);
     this.scene.add(this.starParticles);
   }
@@ -143,6 +158,37 @@ class Universe3D {
       'Rust': 0xdea584, 'Vue': 0x41b883, 'React': 0x61dafb
     };
     return colors[lang] || 0x8b949e;
+  }
+
+  createAtmosphere(radius, color) {
+    const vertexShader = `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+    const fragmentShader = `
+      varying vec3 vNormal;
+      uniform vec3 glowColor;
+      void main() {
+        // Cálculo de Fresnel (brilho nas bordas, transparente no centro) reduzido para menos brilho
+        float intensity = pow(0.60 - dot(vNormal, vec3(0, 0, 1.0)), 4.5);
+        gl_FragColor = vec4(glowColor, 1.0) * (intensity * 0.7); // Reduzindo o brilho global do halo
+      }
+    `;
+    const material = new THREE.ShaderMaterial({
+      uniforms: { glowColor: { value: new THREE.Color(color) } },
+      vertexShader,
+      fragmentShader,
+      side: THREE.BackSide,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false
+    });
+    
+    // A atmosfera é um pouco maior que o planeta
+    return new THREE.Mesh(new THREE.SphereGeometry(radius * 1.25, 64, 64), material);
   }
 
   createGalaxy(repos, dominantLanguage = 'JavaScript') {
@@ -159,11 +205,11 @@ class Universe3D {
       this.scene.remove(this.nebulaParticles);
     }
 
-    // Criar Nebulosa Volumétrica baseada na linguagem predominante
+    // Criar Nebulosa Volumétrica Realista usando Textura de Fumaça
     const nebulaColor = this.getColorForLanguage(dominantLanguage);
     const nebulaGeo = new THREE.BufferGeometry();
     const nebulaVertices = [];
-    for (let i = 0; i < 4000; i++) {
+    for (let i = 0; i < 250; i++) {
       const r = 200 + Math.random() * 800; // Raio (começa depois dos planetas)
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(Math.random() * 2 - 1);
@@ -177,12 +223,13 @@ class Universe3D {
     }
     nebulaGeo.setAttribute('position', new THREE.Float32BufferAttribute(nebulaVertices, 3));
     
-    // Shader minimalista via Material para simular poeira
+    // Volumetric Smoke
     const nebulaMat = new THREE.PointsMaterial({ 
       color: nebulaColor, 
-      size: 4.0, 
+      size: 300.0, 
+      map: this.textures.cloud,
       transparent: true, 
-      opacity: 0.15,
+      opacity: 0.12,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -193,11 +240,11 @@ class Universe3D {
     // O Sol
     if (!this.sun) {
       const sunGeo = new THREE.SphereGeometry(15, 64, 64);
-      // Sol agora emite muita luz (Glow Neon)
+      // Brilho do sol central reduzido
       const sunMat = new THREE.MeshStandardMaterial({ 
         color: 0xffffff,
         emissive: 0xffffff,
-        emissiveIntensity: 2.0,
+        emissiveIntensity: 1.0, 
         roughness: 0.1
       });
       this.sun = new THREE.Mesh(sunGeo, sunMat);
@@ -229,14 +276,23 @@ class Universe3D {
       const color = this.getColorForLanguage(repo.language);
 
       const geo = new THREE.SphereGeometry(radius, 64, 64);
+      // Todos os planetas agora recebem o "Novo Gráfico" (Textura Atmosférica + Halo)
       const mat = new THREE.MeshStandardMaterial({ 
         color: color, 
-        roughness: 0.5 + Math.random() * 0.5, 
-        metalness: Math.random() * 0.3,
+        map: this.textures.gas,
+        roughness: 0.4, 
+        metalness: 0.1,
         emissive: color,
-        emissiveIntensity: 0.05
+        emissiveIntensity: 0.02
       });
+      
       const mesh = new THREE.Mesh(geo, mat);
+
+      // Todos os planetas ganham o Halo atmosférico
+      const atmos = this.createAtmosphere(radius, color);
+      const scale = 1.05; // Escala fixa para a atmosfera
+      atmos.scale.set(scale, scale, scale);
+      mesh.add(atmos);
 
       // Rotação inicial aleatória
       mesh.rotation.x = Math.random() * Math.PI;
