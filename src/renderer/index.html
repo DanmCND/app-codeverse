@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeVerse</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/gateway.css">
+  <link rel="stylesheet" href="css/universe.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body data-theme="dark">
+  <header class="titlebar">
+    <div class="titlebar-drag-region"></div>
+    <div class="titlebar-title">CodeVerse // Terminal</div>
+    <div class="titlebar-controls">
+      <button class="control-btn minimize" id="min-btn"><i class="ph ph-minus"></i></button>
+      <button class="control-btn maximize" id="max-btn"><i class="ph ph-square"></i></button>
+      <button class="control-btn close" id="close-btn"><i class="ph ph-x"></i></button>
+    </div>
+  </header>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <main id="app-container">
+    <!-- Gateway Screen -->
+    <section id="gateway-screen" class="screen active">
+      <div id="stars-background"></div>
+      <div class="gateway-card glass-panel">
+        <h1 class="logo">Code<span class="highlight">Verse</span></h1>
+        <p class="subtitle">Sincronize com a Base de Dados Galáctica</p>
+        
+        <div class="input-group">
+          <i class="ph ph-github-logo"></i>
+          <input type="text" id="github-username" placeholder="Insira seu username do GitHub..." autocomplete="off">
+        </div>
+        
+        <button id="explore-btn" class="sci-fi-btn">
+          <span class="btn-text">Explorar Universo</span>
+          <i class="ph ph-rocket-launch"></i>
+        </button>
+        <div class="loader hidden" id="gateway-loader">
+          <div class="spinner"></div>
+          <span>Sincronizando...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main App Screen (Split Layout) -->
+    <section id="main-screen" class="screen hidden">
+      <!-- Sidebar de Navegação -->
+      <aside class="main-sidebar glass-panel">
+        
+        <!-- Search Explorer -->
+        <div class="sidebar-search">
+          <div class="input-group-small">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" id="explorer-input" placeholder="Buscar usuário GitHub..." autocomplete="off">
+          </div>
+        </div>
+
+        <div class="user-profile">
+          <img src="" alt="Avatar" id="user-avatar" class="avatar hidden">
+          <div class="user-info">
+            <h2 id="user-name">Comandante</h2>
+            <p id="user-login">@username</p>
+            <div class="profile-actions">
+              <button id="my-universe-btn" class="icon-btn-small" title="Meu Universo"><i class="ph ph-house"></i></button>
+              <button id="share-btn" class="icon-btn-small" title="Compartilhar Universo"><i class="ph ph-share-network"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="recent-searches">
+          <span class="recent-label">Recentes:</span>
+          <div class="recent-list" id="recent-list">
+            <!-- JS vai popular -->
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-btn active" data-target="tab-universe">
+            <i class="ph ph-planet"></i> Universo
+          </button>
+          <button class="nav-btn" data-target="tab-dashboard">
+            <i class="ph ph-squares-four"></i> Dashboard
+          </button>
+          <button class="nav-btn" data-target="tab-achievements">
+            <i class="ph ph-medal"></i> Conquistas
+          </button>
+          <button class="nav-btn" id="theme-toggle">
+            <i class="ph ph-moon"></i> Alterar Tema
+          </button>
+        </nav>
+      </aside>
+
+      <!-- Content Area -->
+      <div class="content-area">
+        <!-- Aba: Universo -->
+        <div id="tab-universe" class="tab-content active">
+          
+          <div id="universe-loader" class="universe-loader hidden">
+            <div class="spinner"></div>
+            <span>Viajando na velocidade da luz...</span>
+          </div>
+
+          <div class="canvas-container" id="canvas-container">
+            <canvas id="universe-canvas"></canvas>
+            <div id="planet-tooltip" class="planet-tooltip hidden"></div>
+          </div>
+          
+          <aside class="right-panel glass-panel hidden" id="details-panel">
+            <header class="panel-header">
+              <h2 id="repo-name">Nome do Repo</h2>
+              <button id="close-details-btn" class="icon-btn"><i class="ph ph-x"></i></button>
+            </header>
+            
+            <div class="repo-stats">
+              <p class="repo-desc" id="repo-desc">Descrição do projeto...</p>
+              
+              <div class="stat-row">
+                <i class="ph ph-code"></i>
+                <span id="repo-lang" class="tech-badge">Linguagem</span>
+              </div>
+              
+              <div class="stat-row">
+                <i class="ph ph-star"></i>
+                <span><span id="repo-stars">0</span> Stars</span>
+              </div>
+              
+              <div class="stat-row">
+                <i class="ph ph-git-fork"></i>
+                <span><span id="repo-forks">0</span> Forks</span>
+              </div>
+
+              <div class="stat-row">
+                <i class="ph ph-clock"></i>
+                <span>Atualizado: <span id="repo-updated">Data</span></span>
+              </div>
+            </div>
+            
+            <a href="#" target="_blank" id="repo-link" class="sci-fi-btn outline">
+              <span class="btn-text">Ver no GitHub</span>
+              <i class="ph ph-arrow-up-right"></i>
+            </a>
+          </aside>
+        </div>
+
+        <!-- Aba: Dashboard -->
+        <div id="tab-dashboard" class="tab-content hidden">
+          <div class="dashboard-wrapper glass-panel">
+            <h2 class="section-title">Dashboard Galáctico</h2>
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span class="metric-label">Repositórios</span>
+                <span class="metric-value" id="metric-repos">0</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Stars Totais</span>
+                <span class="metric-value" id="metric-stars">0</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Linguagem Dominante</span>
+                <span class="metric-value highlight" id="metric-lang">-</span>
+              </div>
+              <div class="metric-card full-width">
+                <span class="metric-label">Projeto Mais Ativo</span>
+                <span class="metric-value highlight" id="metric-active">-</span>
+                <span class="metric-sub" id="metric-active-desc" style="color: var(--text-muted); font-size: 13px; margin-top: 8px;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Aba: Achievements -->
+        <div id="tab-achievements" class="tab-content hidden">
+          <div class="achievements-wrapper glass-panel">
+            <h2 class="section-title">Suas Conquistas</h2>
+            <div class="badges-container" id="badges-container">
+              <!-- Badges populados por JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/github.js"></script>
+  <script src="js/universe.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
