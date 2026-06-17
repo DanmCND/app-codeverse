@@ -24,12 +24,11 @@ class Universe3D {
     // Post-Processing (Bloom / Glow Neon)
     // =========================================================
     const renderScene = new RenderPass(this.scene, this.camera);
-    // Resolvendo alpha: renderScene.clear = true
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      2.0, // intensity maior
-      0.5, // radius maior
-      0.2  // threshold baixo (qualquer emissive forte vai brilhar)
+      1.3, // intensity reduzida para não estourar a cena
+      0.45, // radius do glow
+      0.25  // threshold levemente maior para evitar glow exagerado
     );
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(renderScene);
@@ -89,17 +88,17 @@ class Universe3D {
     this.orbitGroups = [];
     this.planetMeshes = [];
     this.starParticles = null;
+    this.nebulaGroup = null;
     this.isPaused = false; 
 
     // =========================================================
-    // Gerenciamento de Texturas Reais
+    // Gerenciamento de Texturas (Geradas Localmente para Performance e Offline-First)
     // =========================================================
-    this.textureLoader = new THREE.TextureLoader();
-    this.textureLoader.setCrossOrigin('anonymous');
     this.textures = {
-      gas: this.textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/jupiter.jpg'),
-      rock: this.textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/moon_1024.jpg'),
-      cloud: this.textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/cloud.png'),
+      gas: this.generateGasTexture(),
+      rock: this.generateRockTexture(),
+      cloud: this.generateCloudTexture(),
+      star: this.generateStarTexture()
     };
     
     // Garantir que a textura de gás possa ser colorida mantendo o padrão da linguagem
@@ -133,6 +132,132 @@ class Universe3D {
     requestAnimationFrame(this.animate);
   }
 
+  generateGasTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    
+    // Fundo branco base (o material do planeta multiplica esta cor pela cor da linguagem)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 512, 256);
+    
+    // Desenha faixas horizontais simulando a atmosfera de gigantes gasosos
+    for (let y = 0; y < 256; y += 4) {
+      const noise = Math.sin(y * 0.1) * 0.15 + Math.cos(y * 0.03) * 0.1;
+      const alpha = 0.55 + noise;
+      const colorVal = Math.floor(200 + noise * 55);
+      ctx.fillStyle = `rgba(${colorVal}, ${colorVal}, ${colorVal}, ${alpha})`;
+      ctx.fillRect(0, y, 512, 4);
+    }
+    
+    // Detalhes orgânicos de ruído ao longo das faixas
+    for (let i = 0; i < 30; i++) {
+      const y = Math.random() * 256;
+      const h = 5 + Math.random() * 15;
+      const opacity = 0.05 + Math.random() * 0.1;
+      const grad = ctx.createLinearGradient(0, y, 0, y + h);
+      grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      grad.addColorStop(0.5, `rgba(0, 0, 0, ${opacity})`);
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, y, 512, h);
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  }
+
+  generateRockTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 256, 256);
+    
+    // Ruído fino de superfície
+    for (let i = 0; i < 1500; i++) {
+      const x = Math.random() * 256;
+      const y = Math.random() * 256;
+      const r = Math.random() * 1.5;
+      const gray = Math.floor(180 + Math.random() * 75);
+      ctx.fillStyle = `rgb(${gray}, ${gray}, ${gray})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Crateras
+    for (let i = 0; i < 15; i++) {
+      const x = Math.random() * 256;
+      const y = Math.random() * 256;
+      const r = 3 + Math.random() * 7;
+      
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.beginPath();
+      ctx.arc(x + 1, y + 1, r, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+  }
+
+  generateCloudTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.clearRect(0, 0, 128, 128);
+    
+    // Gradiente radial super suave para as nuvens de fumaça da nebulosa
+    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+    gradient.addColorStop(0.15, 'rgba(255, 255, 255, 0.85)');
+    gradient.addColorStop(0.35, 'rgba(255, 255, 255, 0.45)');
+    gradient.addColorStop(0.65, 'rgba(255, 255, 255, 0.12)');
+    gradient.addColorStop(0.9, 'rgba(255, 255, 255, 0.02)');
+    gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 128, 128);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+  }
+
+  generateStarTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.clearRect(0, 0, 16, 16);
+    
+    // Estrela suave com brilho centralizado
+    const gradient = ctx.createRadialGradient(8, 8, 0, 8, 8, 8);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+    gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
+    gradient.addColorStop(1.0, 'rgba(255, 255, 255, 0.0)');
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 16, 16);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+  }
+
   createBackgroundStars() {
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
@@ -145,7 +270,15 @@ class Universe3D {
     }
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     
-    const material = new THREE.PointsMaterial({ color: 0xffffff, size: 2.0, transparent: true, opacity: 0.8 });
+    const material = new THREE.PointsMaterial({ 
+      color: 0xffffff, 
+      size: 4.0, 
+      map: this.textures.star,
+      transparent: true, 
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
     this.starParticles = new THREE.Points(geometry, material);
     this.scene.add(this.starParticles);
   }
@@ -201,41 +334,147 @@ class Universe3D {
     this.planetMeshes = [];
     this.orbitGroups = [];
 
-    if (this.nebulaParticles) {
-      this.scene.remove(this.nebulaParticles);
+    if (this.nebulaGroup) {
+      this.scene.remove(this.nebulaGroup);
     }
+    this.nebulaGroup = new THREE.Group();
 
-    // Criar Nebulosa Volumétrica Realista usando Textura de Fumaça
     const nebulaColor = this.getColorForLanguage(dominantLanguage);
-    const nebulaGeo = new THREE.BufferGeometry();
-    const nebulaVertices = [];
-    for (let i = 0; i < 250; i++) {
-      const r = 200 + Math.random() * 800; // Raio (começa depois dos planetas)
+    const colorObj = new THREE.Color(nebulaColor);
+    
+    // Cores do tema espacial para misturar
+    const themeColors = [
+      new THREE.Color(0x4F46E5), // Indigo
+      new THREE.Color(0x7C3AED), // Roxo
+      new THREE.Color(0x00E5FF)  // Ciano
+    ];
+
+    // 1. Núcleo Interno da Nebulosa (reduzido e afastado para dar visibilidade ao centro)
+    const coreGeo = new THREE.BufferGeometry();
+    const coreVertices = [];
+    const coreColors = [];
+    
+    for (let i = 0; i < 150; i++) {
+      const r = 120 + Math.random() * 250; // Começa afastado (120) para criar um vazio no centro para o sol e planetas
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(Math.random() * 2 - 1);
       
-      // Distribuição mais "torta" pra parecer nuvem
-      nebulaVertices.push(
-        r * Math.sin(phi) * Math.cos(theta) * (Math.random() * 0.5 + 0.5),
-        r * Math.sin(phi) * Math.sin(theta) * 0.2, // Achatado no eixo Y
-        r * Math.cos(phi) * (Math.random() * 0.5 + 0.5)
-      );
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta) * 0.25; // achatado no Y
+      const z = r * Math.cos(phi);
+      
+      coreVertices.push(x, y, z);
+      
+      // Cor próxima à cor dominante da linguagem com pequenas variações de brilho
+      const c = colorObj.clone();
+      c.offsetHSL((Math.random() - 0.5) * 0.05, 0, (Math.random() - 0.5) * 0.1);
+      coreColors.push(c.r, c.g, c.b);
     }
-    nebulaGeo.setAttribute('position', new THREE.Float32BufferAttribute(nebulaVertices, 3));
     
-    // Volumetric Smoke
-    const nebulaMat = new THREE.PointsMaterial({ 
-      color: nebulaColor, 
-      size: 300.0, 
+    coreGeo.setAttribute('position', new THREE.Float32BufferAttribute(coreVertices, 3));
+    coreGeo.setAttribute('color', new THREE.Float32BufferAttribute(coreColors, 3));
+    
+    const coreMat = new THREE.PointsMaterial({
+      size: 200.0, // menor para não sobrepor completamente o centro
       map: this.textures.cloud,
-      transparent: true, 
-      opacity: 0.12,
+      transparent: true,
+      opacity: 0.025, // muito mais suave para visibilidade total
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      vertexColors: true
     });
     
-    this.nebulaParticles = new THREE.Points(nebulaGeo, nebulaMat);
-    this.scene.add(this.nebulaParticles);
+    const coreNebula = new THREE.Points(coreGeo, coreMat);
+    this.nebulaGroup.add(coreNebula);
+
+    // 2. Disco Galáctico Externo da Nebulosa (mais amplo, cores misturadas, suavizado)
+    const outerGeo = new THREE.BufferGeometry();
+    const outerVertices = [];
+    const outerColors = [];
+    
+    for (let i = 0; i < 450; i++) {
+      const r = 320 + Math.random() * 880;
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta) * 0.12; // disco bem achatado
+      const z = r * Math.cos(phi);
+      
+      outerVertices.push(x, y, z);
+      
+      // Interpolação entre a cor dominante e cores do tema espacial
+      const c = colorObj.clone();
+      if (Math.random() < 0.5) {
+        const mixColor = themeColors[Math.floor(Math.random() * themeColors.length)];
+        c.lerp(mixColor, 0.4 + Math.random() * 0.4);
+      } else {
+        c.offsetHSL((Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1);
+      }
+      outerColors.push(c.r, c.g, c.b);
+    }
+    
+    outerGeo.setAttribute('position', new THREE.Float32BufferAttribute(outerVertices, 3));
+    outerGeo.setAttribute('color', new THREE.Float32BufferAttribute(outerColors, 3));
+    
+    const outerMat = new THREE.PointsMaterial({
+      size: 320.0, // menor e mais sutil
+      map: this.textures.cloud,
+      transparent: true,
+      opacity: 0.018, // super sutil
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      vertexColors: true
+    });
+    
+    const outerNebula = new THREE.Points(outerGeo, outerMat);
+    this.nebulaGroup.add(outerNebula);
+
+    // 3. Partículas de Poeira Cósmica (pontos brilhantes dentro da nebulosa, suavizados)
+    const dustGeo = new THREE.BufferGeometry();
+    const dustVertices = [];
+    const dustColors = [];
+    
+    for (let i = 0; i < 180; i++) {
+      const r = 100 + Math.random() * 800;
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta) * 0.2;
+      const z = r * Math.cos(phi);
+      
+      dustVertices.push(x, y, z);
+      
+      const c = new THREE.Color();
+      const rand = Math.random();
+      if (rand < 0.4) {
+        c.setHex(0x00E5FF); // Ciano
+      } else if (rand < 0.7) {
+        c.setHex(0x7C3AED); // Roxo
+      } else {
+        c.setHex(0xffffff); // Branco
+      }
+      dustColors.push(c.r, c.g, c.b);
+    }
+    
+    dustGeo.setAttribute('position', new THREE.Float32BufferAttribute(dustVertices, 3));
+    dustGeo.setAttribute('color', new THREE.Float32BufferAttribute(dustColors, 3));
+    
+    const dustMat = new THREE.PointsMaterial({
+      size: 3.5,
+      map: this.textures.star,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      vertexColors: true
+    });
+    
+    const dustParticles = new THREE.Points(dustGeo, dustMat);
+    this.nebulaGroup.add(dustParticles);
+
+    this.scene.add(this.nebulaGroup);
 
     // O Sol
     if (!this.sun) {
@@ -410,8 +649,12 @@ class Universe3D {
       this.starParticles.rotation.y += 0.0002;
     }
 
-    if (this.nebulaParticles) {
-      this.nebulaParticles.rotation.y -= 0.0005; // Nebulosa gira devagar e ao contrário
+    if (this.nebulaGroup && !this.isPaused) {
+      // Rotaciona as camadas da nebulosa em velocidades ligeiramente diferentes para paralaxe
+      this.nebulaGroup.children.forEach((layer, idx) => {
+        const speed = (idx === 0) ? -0.0003 : (idx === 1) ? -0.000155 : 0.0002;
+        layer.rotation.y += speed;
+      });
     }
 
     this.controls.update();
