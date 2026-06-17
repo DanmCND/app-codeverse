@@ -12,7 +12,7 @@ class Universe3D {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x05070A);
 
-    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
+    this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 30000);
     this.camera.position.set(0, 150, 250);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -61,10 +61,16 @@ class Universe3D {
     this.controls = new OrbitControls(this.camera, this.interactLayer);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
-    this.controls.maxDistance = 2000;
+    this.controls.maxDistance = 20000;
     this.controls.enableZoom = true;
     this.controls.enablePan = true;
     this.controls.zoomSpeed = 1.2;
+    // Configuração de Navegação: Clique esquerdo arrasta (Pan), clique direito rotaciona (Rotate)
+    this.controls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE
+    };
 
     this.interactLayer.addEventListener('mousedown', () => {
       this.interactLayer.style.cursor = 'grabbing';
@@ -90,6 +96,7 @@ class Universe3D {
     this.starParticles = null;
     this.nebulaGroup = null;
     this.isPaused = false; 
+    this.is2D = false; // Estado inicial da dimensão (3D)
 
     // =========================================================
     // Gerenciamento de Texturas (Geradas Localmente para Performance e Offline-First)
@@ -258,24 +265,39 @@ class Universe3D {
     return texture;
   }
 
-  createBackgroundStars() {
+  createBackgroundStars(systemRadius = 1200) {
+    if (this.starParticles) {
+      this.scene.remove(this.starParticles);
+    }
+
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
-    for (let i = 0; i < 6000; i++) {
+    
+    // Define limites dinâmicos para a casca de estrelas (background) de modo que sempre fiquem no fundo
+    const minRadius = Math.max(systemRadius * 2.0, 10000);
+    const maxRadius = Math.max(systemRadius * 4.0, 25000);
+    
+    for (let i = 0; i < 8000; i++) {
+      const theta = Math.random() * 2 * Math.PI;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      
+      // Distribuição volumétrica uniforme dentro da casca esférica (para evitar agrupamentos)
+      const r = Math.cbrt(Math.random() * (Math.pow(maxRadius, 3) - Math.pow(minRadius, 3)) + Math.pow(minRadius, 3));
+      
       vertices.push(
-        (Math.random() - 0.5) * 4000,
-        (Math.random() - 0.5) * 4000,
-        (Math.random() - 0.5) * 4000
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
       );
     }
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     
     const material = new THREE.PointsMaterial({ 
       color: 0xffffff, 
-      size: 4.0, 
+      size: 6.0, // Aumentado ligeiramente para manter o brilho mesmo a maior distância
       map: this.textures.star,
       transparent: true, 
-      opacity: 0.8,
+      opacity: 0.85,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -334,6 +356,26 @@ class Universe3D {
     this.planetMeshes = [];
     this.orbitGroups = [];
 
+    // Calcular o tamanho total do sistema solar deterministicamente
+    this.orbitData = [];
+    let tempDistance = 40;
+    repos.forEach((repo) => {
+      let sizeScore = repo.size || 10;
+      let radius = 2.5 + Math.pow(sizeScore, 0.25) * 1.2; 
+      radius += Math.log2((repo.stargazers_count || 0) + 1) * 0.5;
+      if (radius > 22) radius = 22;
+      if (radius < 3) radius = 3;
+      
+      let orbitGap = 15 + (radius * 1.8) + (Math.random() * 15);
+      tempDistance += orbitGap;
+      
+      this.orbitData.push({ radius, distance: tempDistance, repo });
+    });
+    const maxSystemRadius = Math.max(500, tempDistance);
+
+    // Adapta o campo estelar de fundo de acordo com o tamanho do sistema solar
+    this.createBackgroundStars(maxSystemRadius);
+
     if (this.nebulaGroup) {
       this.scene.remove(this.nebulaGroup);
     }
@@ -349,13 +391,19 @@ class Universe3D {
       new THREE.Color(0x00E5FF)  // Ciano
     ];
 
-    // 1. Núcleo Interno da Nebulosa (reduzido e afastado para dar visibilidade ao centro)
+    // Calcula os limites dinâmicos para a nebulosa com base no raio máximo
+    const coreStart = Math.max(120, maxSystemRadius * 0.15);
+    const coreEnd = Math.max(350, maxSystemRadius * 0.45);
+    const outerStart = coreEnd;
+    const outerEnd = Math.max(1200, maxSystemRadius * 1.4);
+
+    // 1. Núcleo Interno da Nebulosa (reduzido, afastado do centro e dinâmico)
     const coreGeo = new THREE.BufferGeometry();
     const coreVertices = [];
     const coreColors = [];
     
     for (let i = 0; i < 150; i++) {
-      const r = 120 + Math.random() * 250; // Começa afastado (120) para criar um vazio no centro para o sol e planetas
+      const r = coreStart + Math.random() * (coreEnd - coreStart);
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(Math.random() * 2 - 1);
       
@@ -365,7 +413,6 @@ class Universe3D {
       
       coreVertices.push(x, y, z);
       
-      // Cor próxima à cor dominante da linguagem com pequenas variações de brilho
       const c = colorObj.clone();
       c.offsetHSL((Math.random() - 0.5) * 0.05, 0, (Math.random() - 0.5) * 0.1);
       coreColors.push(c.r, c.g, c.b);
@@ -375,10 +422,10 @@ class Universe3D {
     coreGeo.setAttribute('color', new THREE.Float32BufferAttribute(coreColors, 3));
     
     const coreMat = new THREE.PointsMaterial({
-      size: 200.0, // menor para não sobrepor completamente o centro
+      size: Math.max(150.0, maxSystemRadius * 0.15), // tamanho dinâmico
       map: this.textures.cloud,
       transparent: true,
-      opacity: 0.025, // muito mais suave para visibilidade total
+      opacity: 0.025,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       vertexColors: true
@@ -387,13 +434,13 @@ class Universe3D {
     const coreNebula = new THREE.Points(coreGeo, coreMat);
     this.nebulaGroup.add(coreNebula);
 
-    // 2. Disco Galáctico Externo da Nebulosa (mais amplo, cores misturadas, suavizado)
+    // 2. Disco Galáctico Externo da Nebulosa (mais amplo e dinâmico)
     const outerGeo = new THREE.BufferGeometry();
     const outerVertices = [];
     const outerColors = [];
     
     for (let i = 0; i < 450; i++) {
-      const r = 320 + Math.random() * 880;
+      const r = outerStart + Math.random() * (outerEnd - outerStart);
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(Math.random() * 2 - 1);
       
@@ -403,7 +450,6 @@ class Universe3D {
       
       outerVertices.push(x, y, z);
       
-      // Interpolação entre a cor dominante e cores do tema espacial
       const c = colorObj.clone();
       if (Math.random() < 0.5) {
         const mixColor = themeColors[Math.floor(Math.random() * themeColors.length)];
@@ -418,10 +464,10 @@ class Universe3D {
     outerGeo.setAttribute('color', new THREE.Float32BufferAttribute(outerColors, 3));
     
     const outerMat = new THREE.PointsMaterial({
-      size: 320.0, // menor e mais sutil
+      size: Math.max(250.0, maxSystemRadius * 0.25), // tamanho dinâmico
       map: this.textures.cloud,
       transparent: true,
-      opacity: 0.018, // super sutil
+      opacity: 0.018,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       vertexColors: true
@@ -430,13 +476,13 @@ class Universe3D {
     const outerNebula = new THREE.Points(outerGeo, outerMat);
     this.nebulaGroup.add(outerNebula);
 
-    // 3. Partículas de Poeira Cósmica (pontos brilhantes dentro da nebulosa, suavizados)
+    // 3. Partículas de Poeira Cósmica (pontos brilhantes dentro da nebulosa, dinâmicos)
     const dustGeo = new THREE.BufferGeometry();
     const dustVertices = [];
     const dustColors = [];
     
     for (let i = 0; i < 180; i++) {
-      const r = 100 + Math.random() * 800;
+      const r = 100 + Math.random() * (maxSystemRadius * 1.1);
       const theta = Math.random() * 2 * Math.PI;
       const phi = Math.acos(Math.random() * 2 - 1);
       
@@ -490,27 +536,8 @@ class Universe3D {
       this.scene.add(this.sun);
     }
 
-    let currentDistance = 40; // Distância inicial a partir do Sol
-
-    repos.forEach((repo, i) => {
-      // Ajuste "Meio-Termo": Usando uma potência suave e bônus logarítmico para as estrelas
-      // Isso cria uma diferença perceptível sem estourar o tamanho da tela
-      let sizeScore = repo.size || 10;
-      let radius = 2.5 + Math.pow(sizeScore, 0.25) * 1.2; 
-      
-      // Bônus moderado para repositórios com estrelas
-      radius += Math.log2((repo.stargazers_count || 0) + 1) * 0.5;
-      
-      // Limites: Maior que o antigo (15), menor que o extremo (45)
-      if (radius > 22) radius = 22;
-      if (radius < 3) radius = 3;
-      
-      // Variação na distância da órbita: o "gap" depende do tamanho do planeta
-      // Planetas maiores geram espaçamentos maiores, parecendo um sistema solar real
-      let orbitGap = 15 + (radius * 1.8) + (Math.random() * 15);
-      currentDistance += orbitGap;
-      
-      const distance = currentDistance;
+    this.orbitData.forEach((orbit, i) => {
+      const { radius, distance, repo } = orbit;
       const speed = 0.001 + Math.random() * 0.003;
       const color = this.getColorForLanguage(repo.language);
 
@@ -556,8 +583,17 @@ class Universe3D {
       
       // Inclinação aleatória da órbita (entre -15 e +15 graus no X e Z)
       const maxTilt = 15 * (Math.PI / 180);
-      orbitGroup.rotation.x = (Math.random() - 0.5) * 2 * maxTilt;
-      orbitGroup.rotation.z = (Math.random() - 0.5) * 2 * maxTilt;
+      const tiltX = (Math.random() - 0.5) * 2 * maxTilt;
+      const tiltZ = (Math.random() - 0.5) * 2 * maxTilt;
+      orbitGroup.userData = { tiltX, tiltZ };
+      
+      if (this.is2D) {
+        orbitGroup.rotation.x = 0;
+        orbitGroup.rotation.z = 0;
+      } else {
+        orbitGroup.rotation.x = tiltX;
+        orbitGroup.rotation.z = tiltZ;
+      }
       
       orbitGroup.add(orbitMesh);
       orbitGroup.add(mesh);
@@ -616,7 +652,11 @@ class Universe3D {
   }
 
   resetCamera() {
-    this.camera.position.set(0, 150, 250);
+    if (this.is2D) {
+      this.camera.position.set(0, 550, 0.001);
+    } else {
+      this.camera.position.set(0, 150, 250);
+    }
     this.controls.target.set(0, 0, 0);
   }
 
@@ -626,6 +666,10 @@ class Universe3D {
 
   animate() {
     requestAnimationFrame(this.animate);
+    
+    if (window.TWEEN) {
+      window.TWEEN.update();
+    }
     
     this.planetMeshes.forEach(mesh => {
       // Se não estiver pausado, avança o ângulo
@@ -660,6 +704,121 @@ class Universe3D {
     this.controls.update();
     // Renderiza a cena com Pós-Processamento (Bloom)
     this.composer.render();
+  }
+
+  toggleDimension() {
+    this.is2D = !this.is2D;
+
+    // Se houver alguma animação de Tween pendente, para tudo para não ter conflito
+    if (window.TWEEN) {
+      window.TWEEN.removeAll();
+    }
+
+    if (this.is2D) {
+      // Desativa os controles temporariamente para não ter conflito de input do usuário durante o voo
+      this.controls.enabled = false;
+
+      // Anima a câmera para uma posição ortogonal superior (vista 2D de cima)
+      // Usamos 0.001 no Z para evitar Gimbal Lock / Singularidade de olhar direto para baixo no Three.js
+      if (window.TWEEN) {
+        new window.TWEEN.Tween(this.camera.position, true)
+          .to({ x: 0, y: 550, z: 0.001 }, 1200)
+          .easing(window.TWEEN.Easing.Cubic.Out)
+          .start();
+
+        new window.TWEEN.Tween(this.controls.target, true)
+          .to({ x: 0, y: 0, z: 0 }, 1200)
+          .easing(window.TWEEN.Easing.Cubic.Out)
+          .onComplete(() => {
+            // Trava o ângulo de inclinação vertical (PolarAngle) em 0 para que o usuário não consiga rotacionar em 3D
+            this.controls.minPolarAngle = 0;
+            this.controls.maxPolarAngle = 0;
+            // No modo 2D, o clique esquerdo arrasta e navega (Pan) em vez de tentar rotacionar
+            this.controls.mouseButtons = {
+              LEFT: THREE.MOUSE.PAN,
+              MIDDLE: THREE.MOUSE.DOLLY,
+              RIGHT: THREE.MOUSE.PAN
+            };
+            this.controls.enabled = true;
+          })
+          .start();
+
+        // Alinha as órbitas dos planetas para ficarem planas (plano X-Z local, rotação 0)
+        this.orbitGroups.forEach(group => {
+          new window.TWEEN.Tween(group.rotation, true)
+            .to({ x: 0, z: 0 }, 1200)
+            .easing(window.TWEEN.Easing.Cubic.Out)
+            .start();
+        });
+      } else {
+        // Fallback caso TWEEN falhe por algum motivo
+        this.camera.position.set(0, 550, 0.001);
+        this.controls.target.set(0, 0, 0);
+        this.controls.minPolarAngle = 0;
+        this.controls.maxPolarAngle = 0;
+        this.controls.mouseButtons = {
+          LEFT: THREE.MOUSE.PAN,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.PAN
+        };
+        this.controls.enabled = true;
+        this.orbitGroups.forEach(group => {
+          group.rotation.x = 0;
+          group.rotation.z = 0;
+        });
+      }
+    } else {
+      // Modo 3D: Destrava as restrições de inclinação da câmera
+      this.controls.minPolarAngle = 0;
+      this.controls.maxPolarAngle = Math.PI;
+      this.controls.mouseButtons = {
+        LEFT: THREE.MOUSE.PAN,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE
+      };
+      this.controls.enabled = false;
+
+      // Anima a câmera de volta para a posição inclinada 3D clássica
+      if (window.TWEEN) {
+        new window.TWEEN.Tween(this.camera.position, true)
+          .to({ x: 0, y: 150, z: 250 }, 1200)
+          .easing(window.TWEEN.Easing.Cubic.Out)
+          .start();
+
+        new window.TWEEN.Tween(this.controls.target, true)
+          .to({ x: 0, y: 0, z: 0 }, 1200)
+          .easing(window.TWEEN.Easing.Cubic.Out)
+          .onComplete(() => {
+            this.controls.enabled = true;
+          })
+          .start();
+
+        // Devolve a inclinação aleatória das órbitas
+        this.orbitGroups.forEach(group => {
+          new window.TWEEN.Tween(group.rotation, true)
+            .to({ 
+              x: group.userData.tiltX || 0, 
+              z: group.userData.tiltZ || 0 
+            }, 1200)
+            .easing(window.TWEEN.Easing.Cubic.Out)
+            .start();
+        });
+      } else {
+        // Fallback
+        this.camera.position.set(0, 150, 250);
+        this.controls.target.set(0, 0, 0);
+        this.controls.mouseButtons = {
+          LEFT: THREE.MOUSE.PAN,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.ROTATE
+        };
+        this.controls.enabled = true;
+        this.orbitGroups.forEach(group => {
+          group.rotation.x = group.userData.tiltX || 0;
+          group.rotation.z = group.userData.tiltZ || 0;
+        });
+      }
+    }
   }
 }
 

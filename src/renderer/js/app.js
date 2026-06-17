@@ -278,14 +278,26 @@ document.addEventListener('DOMContentLoaded', () => {
           });
 
           document.getElementById('pause-orbit-btn').addEventListener('click', (e) => {
-             universe3D.togglePause();
-             const icon = document.querySelector('#pause-orbit-btn i');
-             if (universe3D.isPaused) {
-               icon.classList.remove('ph-pause');
-               icon.classList.add('ph-play');
+              universe3D.togglePause();
+              const icon = document.querySelector('#pause-orbit-btn i');
+              if (universe3D.isPaused) {
+                icon.classList.remove('ph-pause');
+                icon.classList.add('ph-play');
+              } else {
+                icon.classList.remove('ph-play');
+                icon.classList.add('ph-pause');
+              }
+          });
+
+          document.getElementById('toggle-dimension-btn').addEventListener('click', () => {
+             universe3D.toggleDimension();
+             const icon = document.querySelector('#toggle-dimension-btn i');
+             if (universe3D.is2D) {
+               icon.className = 'ph ph-circle-dashed';
+               showToast('Visualização 2D ativada (Top-Down)', 'ph-planet');
              } else {
-               icon.classList.remove('ph-play');
-               icon.classList.add('ph-pause');
+               icon.className = 'ph ph-cube';
+               showToast('Visualização 3D ativada (Perspectiva)', 'ph-cube');
              }
           });
         }
