@@ -151,12 +151,24 @@ class Universe3D {
     this.interactLayer.addEventListener('pointerdown', (e) => {
       this.mouseDownPos = { x: e.clientX, y: e.clientY };
     });
-    
+
     this.interactLayer.addEventListener('pointerup', (e) => {
       const dist = Math.hypot(e.clientX - this.mouseDownPos.x, e.clientY - this.mouseDownPos.y);
-      // Se moveu menos de 5 pixels, foi um clique intencional no planeta (não arrasto de câmera)
-      if (dist < 5 && this.hoveredObject && this.hoveredObject.userData.repo) {
-        if (window.onPlanetClick) window.onPlanetClick(this.hoveredObject.userData.repo);
+      // Se moveu menos de 5 pixels, foi um clique/toque intencional no planeta (não arrasto de câmera)
+      if (dist < 5) {
+        // Atualiza a posição de mouse temporariamente para o cálculo do Raycast direto (importante para touch no mobile)
+        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.planetMeshes);
+        
+        if (intersects.length > 0) {
+          const clickedPlanet = intersects[0].object;
+          if (window.onPlanetClick && clickedPlanet.userData.repo) {
+            window.onPlanetClick(clickedPlanet.userData.repo);
+          }
+        }
       }
     });
 

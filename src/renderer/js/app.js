@@ -364,5 +364,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Mobile Sidebar Toggle
+  const sidebar = document.querySelector('.main-sidebar');
+  const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+  const sidebarToggle = document.getElementById('mobile-sidebar-toggle');
+  
+  if (sidebarToggle && sidebar && sidebarBackdrop) {
+    sidebarToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+      sidebarBackdrop.classList.toggle('active');
+      
+      const isOpen = sidebar.classList.contains('open');
+      sidebarToggle.innerHTML = isOpen ? '<i class="ph ph-x"></i>' : '<i class="ph ph-list"></i>';
+    });
+
+    sidebarBackdrop.addEventListener('click', () => {
+      sidebar.classList.remove('open');
+      sidebarBackdrop.classList.remove('active');
+      sidebarToggle.innerHTML = '<i class="ph ph-list"></i>';
+    });
+
+    // Fechar a sidebar ao selecionar um tab no mobile
+    navBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+          sidebar.classList.remove('open');
+          sidebarBackdrop.classList.remove('active');
+          sidebarToggle.innerHTML = '<i class="ph ph-list"></i>';
+        }
+      });
+    });
+  }
+
   loadRecents();
 });
